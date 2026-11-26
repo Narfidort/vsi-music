@@ -36,11 +36,11 @@ const bad = await cmd(2, 'situation', { scene: '存在しない情景' }); ok(!!
 const txr = await cmd(30, 'mix', 'place', { 海中: 1 }); ok(txr?.value?.tx && txr.value.plan, `mix が取引を返す（${JSON.stringify(txr?.value)}）`);
 await run(6); ok(events.some((e) => e.type === 'landed'), `着地（landed）のイベントが届いた（${JSON.stringify(events.find((e) => e.type === 'landed'))}）`);
 await cmd(31, 'mix', 'place', null);
-await cmd(3, 'situation', { scene: 'かわいい', intensity: 0.7 });
+await cmd(3, 'situation', { scene: 'はしゃぐ', intensity: 0.7 });
 await cmd(4, 'cue', 'boss');
 await run(20);
 ok(events.some((e) => e.type === 'transition' || e.type === 'cue'), `切り替え・合図のイベントが届いた（${events.filter((e) => e.type !== 'bar').map((e) => e.type).slice(0, 6).join(', ')}）`);
-const st2 = await cmd(5, 'state'); ok(st2?.value?.gait === '跳ねる', `かわいいに移った（gait=${st2?.value?.gait}）`);
+const st2 = await cmd(5, 'state'); ok(st2?.value?.gait === '跳ねる', `はしゃぐに移った（gait=${st2?.value?.gait}）`);
 
 // ---- 2) WebSocket 中継 ----
 const base = 'ws://127.0.0.1:8787/ws';

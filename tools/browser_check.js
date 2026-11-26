@@ -27,7 +27,7 @@ ok(r1 === 'running', `AudioContext が動いた（${r1}、読み込み ${((Date.
 await sleep(6000);
 const s1 = await ev(`m.state().then(s => ({ scene: s.scene, gait: s.gait, bpm: s.bpm, time: s.time, section: s.section }))`);
 ok(s1 && s1.time > 3, `カーネルが実時間で進んでいる（${JSON.stringify(s1)}）`);
-await ev(`(async () => { window.ev = []; m.on('*', e => ev.push(e.type)); await m.situation({ scene: 'かわいい', intensity: 0.7 }); await m.cue('boss'); })()`);
+await ev(`(async () => { window.ev = []; m.on('*', e => ev.push(e.type)); await m.situation({ scene: 'はしゃぐ', intensity: 0.7 }); await m.cue('boss'); })()`);
 await sleep(8000);
 const s2 = await ev(`m.state().then(s => ({ scene: s.scene, gait: s.gait, bpm: Math.round(s.bpm), section: s.section, inst: s.instruments }))`);
 ok(s2?.gait === '跳ねる', `命令で切り替わった（${JSON.stringify(s2)}）`);

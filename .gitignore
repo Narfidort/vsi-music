@@ -29,3 +29,4 @@ docs/dev_readme.md
 docs/fig_*.png
 out/
 tools/embed/node_modules/
+media/

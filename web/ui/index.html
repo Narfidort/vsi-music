@@ -15,10 +15,15 @@
   #detailBtn { top: 6px; right: 8px; z-index: 7; } /* 開いた詳細の上にも出して、もう一度押せば閉じる */
   #like { bottom: 8px; right: 52px; } #dislike { bottom: 8px; right: 12px; }
   #wordBtn { bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 12px; }
-  #scenes { position: fixed; z-index: 3; top: 12px; left: 16px; right: 64px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  /* 情景語は 1 行にして横にスクロール（狭い画面で平面に被らないように） */
+  #scenes { position: fixed; z-index: 3; top: 10px; left: 12px; right: 76px; display: flex; flex-wrap: nowrap; gap: 14px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 2px 0 6px;
+    mask-image: linear-gradient(90deg, #000 85%, transparent); -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); }
+  #scenes::-webkit-scrollbar { display: none; }
+  #scenes button { flex: none; }
   #scenes button { background: none; border: 0; padding: 2px 0; font: inherit; color: var(--faint); cursor: pointer; border-bottom: 0.5px solid transparent; transition: color .4s; }
   #scenes button:hover { color: var(--ink); }
   #scenes button.on { color: var(--ink); border-image: linear-gradient(90deg, #ff7aa8, #ffc46b, #7be0a8, #6bb8ff, #b48cff) 1; }
+  @media (max-width: 600px) { #scenes { font-size: 11px; gap: 12px; } .glyph { padding: 8px; } }
   #word { position: fixed; z-index: 4; bottom: 46px; left: 50%; transform: translateX(-50%); width: min(420px, calc(100% - 32px));
     border: 0; border-bottom: 0.5px solid var(--ink); background: transparent; font: inherit; font-size: 14px; text-align: center; padding: 6px; outline: none; display: none; color: var(--ink); }
   #toast { position: fixed; z-index: 4; bottom: 78px; left: 50%; transform: translateX(-50%); color: var(--faint); font-size: 11px; transition: opacity .8s; pointer-events: none; text-align: center; max-width: calc(100% - 32px); }

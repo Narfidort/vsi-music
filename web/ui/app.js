@@ -66,7 +66,7 @@ async function start() {
   await music.start();
   music.noteEvents(true);
   await music.mix('main', null);
-  window.__music = music; // 試験用
+  window.__music = music; window.__pucks = pucks; // 試験用
   music.on('note', (e) => {
     const p = pickPuck(), pc = ((Math.round(e.semi) % 12) + 12) % 12, oct = Math.floor(e.semi / 12);
     const ang = ((pc * 7) % 12) / 12 * Math.PI * 2 - Math.PI / 2; // 五度圏で並べる
@@ -106,30 +106,47 @@ const hitPuck = (x, y) => { for (let i = pucks.length - 1; i >= 0; i--) if (Math
 const gaugeY = () => [96, H - 90];
 const onGauge = (x, y) => Math.abs(x - GAUGE_X()) < 16 && y > gaugeY()[0] - 12 && y < gaugeY()[1] + 12;
 function setGauge(y) { const [a, b] = gaugeY(); intensity = Math.min(1, Math.max(0, (b - y) / (b - a))); tut.gauge = true; sendIntensity(); }
+// タッチ: ダブルタップ（dblclick が来ない端末のため）と、円盤の長押し（大きさ = 比率を 1 → 1.8 → 0.6 と切り替える。ホイールの代わり）
+let lastTap = { t: 0, x: 0, y: 0 }, press = null, lastTouchDouble = -1e9;
 cv.addEventListener('pointerdown', (e) => {
   start();
+  if (e.pointerType !== 'mouse') {
+    const now = performance.now();
+    if (now - lastTap.t < 320 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { lastTap.t = 0; lastTouchDouble = now; onDouble(e.clientX, e.clientY); return; }
+    lastTap = { t: now, x: e.clientX, y: e.clientY };
+  }
   if (onGauge(e.clientX, e.clientY)) { gaugeDrag = true; setGauge(e.clientY); cv.setPointerCapture(e.pointerId); return; }
   const p = hitPuck(e.clientX, e.clientY);
   if (!p) return;
+  press = { p, x: e.clientX, y: e.clientY, timer: setTimeout(() => {
+    if (!press) return;
+    const steps = [1, 1.8, 0.6], i = steps.findIndex((s) => Math.abs(s - p.w) < 0.05);
+    p.w = steps[(i + 1) % steps.length]; tut.added = true; dirty = true; toast(`大きさ ${p.w}`, 900); press = null;
+  }, 550) };
   p.drag = true; p.gx = p.x - e.clientX; p.gy = p.y - e.clientY;
   pucks.splice(pucks.indexOf(p), 1); pucks.push(p); // つかんだものを手前に
   cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing';
 });
 cv.addEventListener('pointermove', (e) => {
   if (gaugeDrag) return setGauge(e.clientY);
+  if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 8) { clearTimeout(press.timer); press = null; }
   const p = pucks.find((q) => q.drag);
   if (!p) { cv.style.cursor = hitPuck(e.clientX, e.clientY) ? 'grab' : onGauge(e.clientX, e.clientY) ? 'ns-resize' : 'default'; return; }
   const nx = Math.min(W - 50, Math.max(10, e.clientX + p.gx)), ny = Math.min(H - 10, Math.max(40, e.clientY + p.gy));
   moved += Math.hypot(nx - p.x, ny - p.y); const q = toPlane(nx, ny); p.u = q.x; p.v = q.y; placeFromPlane(p); dirty = true;
 });
-const release = () => { gaugeDrag = false; for (const p of pucks) if (p.drag) { p.drag = false; dirty = true; sendMood(); } cv.style.cursor = 'default'; };
+const release = () => { if (press) { clearTimeout(press.timer); press = null; } gaugeDrag = false; for (const p of pucks) if (p.drag) { p.drag = false; dirty = true; sendMood(); } cv.style.cursor = 'default'; };
 cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
-cv.addEventListener('dblclick', (e) => {
+// タッチのダブルタップの後に端末が送ってくる dblclick は無視する（足した直後に消してしまうため）
+cv.addEventListener('dblclick', (e) => { if (performance.now() - lastTouchDouble < 600) return; onDouble(e.clientX, e.clientY); });
+// ダブルクリック / ダブルタップ: 円盤の上なら消す、何もないところなら足す
+function onDouble(x, y) {
+  const e = { clientX: x, clientY: y };
   const p = hitPuck(e.clientX, e.clientY);
   if (p) { if (pucks.length > 1) { pucks.splice(pucks.indexOf(p), 1); dirty = true; sendMood(); } return; }
   if (onGauge(e.clientX, e.clientY) || pucks.length >= 5) return;
   const q = toPlane(e.clientX, e.clientY), np = { u: q.x, v: q.y, w: 1, dm: 0.5, drag: false, gx: 0, gy: 0 }; placeFromPlane(np); pucks.push(np); tut.added = true; dirty = true; sendMood();
-});
+}
 cv.addEventListener('wheel', (e) => {
   const p = hitPuck(e.clientX, e.clientY); if (!p) return;
   e.preventDefault();
@@ -205,6 +222,10 @@ setInterval(async () => {
 }, 500);
 
 // ---- 描画 ----
+// 1 行に収まらない説明を、画面幅で折り返す（日本語は 1 文字ずつ）
+function wrap(text, maxW) { const out = []; let line = ''; for (const ch of text) { if (g.measureText(line + ch).width > maxW && line) { out.push(line); line = ''; } line += ch; } if (line) out.push(line); return out; }
+const isTouch = matchMedia('(pointer: coarse)').matches;
+const touchText = (t) => (isTouch ? t.replace('何もないところをダブルクリックで円盤を足す（円盤のダブルクリックで消す・ホイールで大きさ = 比率）', '何もないところをダブルタップで円盤を足す（円盤をダブルタップで消す・長押しで大きさ = 比率）').replace('/ キーでことばでも', '· · · でことばでも') : t);
 function drawPuck(p, now, hueT) {
   const r = radius(p) * (p.drag ? 1.08 : 1), h = 3; // 厚み
   g.save();
@@ -238,7 +259,7 @@ function frame(now) {
   g.font = '300 10px "Hiragino Sans", system-ui'; g.fillStyle = 'rgba(120,120,120,0.35)';
   g.textAlign = 'left'; g.fillText('不快', 14, H / 2); g.textAlign = 'right'; g.fillText('快', W - 50, H / 2);
   g.textAlign = 'center'; g.fillText('高ぶり', W / 2 - 15, 56); g.fillText('静けさ', W / 2 - 15, H - 34);
-  g.textAlign = 'right'; g.fillText('奥 = 支配 ↗', W - 50, 56);
+  if (W >= 600) { g.textAlign = 'right'; g.fillText('奥 = 支配 ↗', W - 50, 56); }
   // 拍で呼吸する輪（円盤ごと）
   beatPulse *= Math.exp(-dt * 2.2);
   const breath = 0.5 + 0.5 * Math.sin((now / 1000) * Math.PI * 2 * (bpm / 60) / 4);
@@ -248,13 +269,22 @@ function frame(now) {
     g.strokeStyle = `hsla(${(hueT + i * 40) % 360}, 80%, 62%, ${(0.07 + 0.2 * beatPulse * (1 - i / 4)) * Math.min(1, p.w)})`; g.lineWidth = 0.5; g.stroke();
   }
   // 感情語（円盤の近くだけ浮かぶ）
-  g.font = '300 11px "Hiragino Sans", system-ui'; g.textAlign = 'center';
+  // 近い順に描き、すでに描いたラベルと重なるものは描かない（狭い画面で文字が被らないように）
+  g.font = `300 ${W < 600 ? 10 : 11}px "Hiragino Sans", system-ui`; g.textAlign = 'center';
+  const labels = [];
   for (const a of anchors) {
     const s = toScreen(a);
     let d = Infinity; for (const p of pucks) d = Math.min(d, Math.hypot(s.x - p.x, s.y - p.y) / Math.hypot(W, H));
     g.fillStyle = 'rgba(60,60,60,0.16)'; g.beginPath(); g.arc(s.x, s.y, 1.1, 0, Math.PI * 2); g.fill();
-    const al = Math.max(0, 1 - d / 0.17);
-    if (al > 0.01) { g.fillStyle = `rgba(40,40,40,${0.7 * al})`; g.fillText(a.name, s.x, s.y - 7); }
+    const al = Math.max(0, 1 - d / (W < 600 ? 0.22 : 0.17));
+    if (al > 0.01) labels.push({ a, s, al });
+  }
+  labels.sort((x, y) => y.al - x.al);
+  const boxes = pucks.map((p) => [p.x - radius(p), p.y - radius(p), p.x + radius(p), p.y + radius(p)]);
+  for (const { a, s, al } of labels) {
+    const w = g.measureText(a.name).width + 4, b = [s.x - w / 2, s.y - 19, s.x + w / 2, s.y - 4];
+    if (boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1])) continue;
+    boxes.push(b); g.fillStyle = `rgba(40,40,40,${0.7 * al})`; g.fillText(a.name, s.x, s.y - 7);
   }
   // 音（五度圏の色の波紋）
   for (let i = ripples.length - 1; i >= 0; i--) {
@@ -285,8 +315,10 @@ function frame(now) {
   // 使い方
   if (tutOn && music && STEPS[tut.step]) {
     const a = Math.min(1, tut.t * 1.5);
-    g.textAlign = 'center'; g.font = '300 13px "Hiragino Sans", system-ui'; g.fillStyle = `rgba(40,40,40,${0.8 * a})`; g.fillText(STEPS[tut.step].text, W / 2, 80);
-    g.font = '300 10px system-ui'; g.fillStyle = `rgba(120,120,120,${0.6 * a})`; g.fillText(`${tut.step + 1} / ${STEPS.length}`, W / 2, 98);
+    g.textAlign = 'center'; g.font = `300 ${W < 600 ? 12 : 13}px "Hiragino Sans", system-ui`; g.fillStyle = `rgba(40,40,40,${0.8 * a})`;
+    const lines = wrap(touchText(STEPS[tut.step].text), Math.min(W - 70, 560));
+    lines.forEach((l, i) => g.fillText(l, W / 2, 80 + i * 18));
+    g.font = '300 10px system-ui'; g.fillStyle = `rgba(120,120,120,${0.6 * a})`; g.fillText(`${tut.step + 1} / ${STEPS.length}`, W / 2, 80 + lines.length * 18);
     const k = (now / 900) % 1;
     if (tut.step === 0) { const p = pucks[0]; g.beginPath(); g.arc(p.x, p.y, radius(p) + 8 + 12 * k, 0, Math.PI * 2); g.strokeStyle = `hsla(${hueT}, 80%, 60%, ${0.6 * (1 - k)})`; g.lineWidth = 0.8; g.stroke(); }
     if (tut.step === 2) { g.beginPath(); g.arc(gx, gy, 8 + 12 * k, 0, Math.PI * 2); g.strokeStyle = `hsla(${hueT}, 80%, 60%, ${0.6 * (1 - k)})`; g.lineWidth = 0.8; g.stroke(); }

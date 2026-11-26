@@ -24,16 +24,34 @@ const FIRE = { x: 0.25, y: 0.62 };
 const player = { x: 0.4, y: 0.5, vx: 0, vy: 0 };
 let shadows = [], battle = null, victoryAt = 0, zone = null, lastPlace = {}, lastDanger = -1, lastThreat = '', lastOutcomeW = 0, sendT = 0;
 const keys = new Set();
+// タッチ: 画面の左半分をドラッグ = 仮想スティック（押した所が中心）、灯ボタン = 灯りを放つ
+const stick = { on: false, id: null, ox: 0, oy: 0, x: 0, y: 0, ax: 0, ay: 0 };
+const isTouch = matchMedia('(pointer: coarse)').matches;
+if (isTouch) document.getElementById('help').textContent = '左側をドラッグして歩く　灯ボタンで影を祓う';
+cv.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse' || stick.on) return;
+  Object.assign(stick, { on: true, id: e.pointerId, ox: e.clientX, oy: e.clientY, x: e.clientX, y: e.clientY, ax: 0, ay: 0 });
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!stick.on || e.pointerId !== stick.id) return;
+  stick.x = e.clientX; stick.y = e.clientY;
+  const dx = stick.x - stick.ox, dy = stick.y - stick.oy, r = Math.hypot(dx, dy), R = 56;
+  stick.ax = r > 6 ? (dx / Math.max(r, R)) : 0; stick.ay = r > 6 ? (dy / Math.max(r, R)) : 0;
+});
+const stickEnd = (e) => { if (e.pointerId === stick.id) Object.assign(stick, { on: false, id: null, ax: 0, ay: 0 }); };
+cv.addEventListener('pointerup', stickEnd); cv.addEventListener('pointercancel', stickEnd);
+document.getElementById('burst').addEventListener('pointerdown', (e) => { e.preventDefault(); burst(); });
 addEventListener('keydown', (e) => { keys.add(e.key.toLowerCase()); if (e.key === ' ') { e.preventDefault(); burst(); } });
 addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
 // API の呼び出しを画面に出す
 const apiLog = [];
 let music = null;
-function show() { document.getElementById('api').textContent = apiLog.slice(0, 9).join('\n'); }
+function show() { document.getElementById('api').textContent = apiLog.slice(0, innerWidth < 700 ? 5 : 9).join('\n'); }
 function api(op, ...args) {
   const line = { text: `${op}(${args.map((a) => JSON.stringify(a)).join(', ')})` };
-  apiLog.unshift(line.text); apiLog.length = Math.min(apiLog.length, 12); show();
+  apiLog.unshift(line.text); apiLog.length = Math.min(apiLog.length, innerWidth < 700 ? 5 : 12); show();
   return music?.[op](...args).then((r) => {
     if (r?.tx) { const i = apiLog.indexOf(line.text); if (i >= 0) apiLog[i] = `${line.text}  → tx${r.tx} ${r.plan} 約${r.eta.toFixed(1)}秒`; show(); }
     return r;
@@ -88,8 +106,8 @@ const flashes = [];
 let last = performance.now();
 function step(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  const ax = (keys.has('d') || keys.has('arrowright')) - (keys.has('a') || keys.has('arrowleft'));
-  const ay = (keys.has('s') || keys.has('arrowdown')) - (keys.has('w') || keys.has('arrowup'));
+  const ax = ((keys.has('d') || keys.has('arrowright')) - (keys.has('a') || keys.has('arrowleft'))) || stick.ax;
+  const ay = ((keys.has('s') || keys.has('arrowdown')) - (keys.has('w') || keys.has('arrowup'))) || stick.ay;
   const inLake = Math.hypot(player.x - ZONES[1].x, player.y - ZONES[1].y) < ZONES[1].r;
   const sp = inLake ? 0.12 : 0.22;
   player.vx += (ax * sp - player.vx) * Math.min(1, dt * 8); player.vy += (ay * sp - player.vy) * Math.min(1, dt * 8);
@@ -156,6 +174,9 @@ function draw(now) {
   for (const s of shadows) { const [x, y] = P(s.x, s.y); for (let i = 0; i < 3; i++) { g.beginPath(); g.arc(x + Math.sin(now / 200 + i) * 2, y + Math.cos(now / 230 + i) * 2, 9 + i * 4, 0, Math.PI * 2); g.strokeStyle = `rgba(40,30,60,${(s.hit ? 0.8 : 0.35) - i * 0.08})`; g.lineWidth = 0.8; g.stroke(); } }
   // 灯り
   for (let i = flashes.length - 1; i >= 0; i--) { const f = flashes[i]; f.t += 0.016; if (f.t > 0.6) { flashes.splice(i, 1); continue; } const [x, y] = P(f.x, f.y); g.beginPath(); g.arc(x, y, 10 + f.t * 160, 0, Math.PI * 2); g.strokeStyle = `hsla(${hueT}, 85%, 60%, ${0.8 * (1 - f.t / 0.6)})`; g.lineWidth = 0.8; g.stroke(); }
+  // 仮想スティック
+  if (stick.on) { g.beginPath(); g.arc(stick.ox, stick.oy, 56, 0, Math.PI * 2); g.strokeStyle = 'rgba(120,110,200,0.35)'; g.lineWidth = 0.8; g.stroke();
+    const kx = stick.ox + stick.ax * 56, ky = stick.oy + stick.ay * 56; g.beginPath(); g.arc(kx, ky, 16, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.8)'; g.fill(); g.strokeStyle = `hsla(${hueT}, 70%, 60%, 0.8)`; g.stroke(); }
   // 自分
   const [px, py] = P(player.x, player.y);
   g.beginPath(); g.arc(px, py, 5, 0, Math.PI * 2); g.strokeStyle = `hsl(${hueT}, 80%, 50%)`; g.lineWidth = 1; g.stroke();

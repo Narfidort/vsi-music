@@ -13,6 +13,7 @@ const PRELOAD = ['piano', 'vc_sus', 'vln_sus', 'cb_sus', 'harp', 'glock'];
 export class MusicClient {
   static async create({ base = new URL('../../', import.meta.url).href.replace(/\/$/, ''), scene = '優しさ', style = {}, seed = 1, latencyHint = 'playback', bridge = false, preload = PRELOAD, onProgress = null } = {}) {
     const ctx = new AudioContext({ sampleRate: 48000, latencyHint });
+    ctx.resume().catch(() => {}); // iOS Safari: 利用者の操作（タップ）の中で同期的に開始しないと鳴らない
     const catalog = await (await fetch(`${base}/assets/web/catalog.json`)).json();
     await ctx.audioWorklet.addModule(`${base}/web/runtime/music-worklet.js`);
     const c = new MusicClient(ctx, catalog, base);

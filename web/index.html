@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phoneme-synth kernel</title>
+<style>
+  :root { --bg: #0b0d12; --fg: #e8e6e1; --dim: #8a8f9c; --line: #232733; --accent: #9ec5ff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 -apple-system, "Hiragino Sans", sans-serif; display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+  aside { padding: 16px; border-right: 1px solid var(--line); overflow-y: auto; }
+  h1 { font-size: 13px; font-weight: 600; letter-spacing: .08em; color: var(--dim); margin: 0 0 12px; }
+  h2 { font-size: 11px; font-weight: 600; letter-spacing: .1em; color: var(--dim); margin: 18px 0 6px; text-transform: uppercase; }
+  .row { display: grid; grid-template-columns: 52px 1fr 52px; gap: 6px; align-items: center; margin: 4px 0; }
+  .row label { font-size: 12px; }
+  .row .pole { font-size: 10px; color: var(--dim); }
+  .row .pole.r { text-align: right; }
+  .row .slider { grid-column: 1 / -1; display: grid; grid-template-columns: 1.2em 1fr 1.2em; gap: 6px; align-items: center; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  button { background: #161a23; color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin: 2px; cursor: pointer; font: inherit; font-size: 12px; }
+  button:hover { border-color: var(--accent); }
+  #start { width: 100%; padding: 10px; font-size: 14px; background: #1c2433; }
+  main { position: relative; overflow: hidden; }
+  canvas { width: 100%; height: 100%; display: block; }
+  #ono { position: absolute; left: 0; right: 0; bottom: 8%; text-align: center; font-size: clamp(40px, 8vw, 96px); font-weight: 300; letter-spacing: .1em; opacity: .85; pointer-events: none; }
+  #hint { position: absolute; top: 16px; right: 16px; color: var(--dim); font-size: 12px; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>PHONEME-SYNTH · KERNEL v0.2</h1>
+  <button id="start">▶ 開始</button>
+  <h2>情景語（意味空間上の点）</h2>
+  <div id="presets"></div>
+  <div id="axes"></div>
+  <h2>相形態（オノマトペの形）</h2>
+  <div id="morphs"></div>
+</aside>
+<main>
+  <canvas id="cv"></canvas>
+  <div id="ono"></div>
+  <div id="hint">視覚化: 形 = 角、明度 = 明るさ、大きさ = 大きさ、縦位置 = 音高、青み = 媒質、ぼかし = 距離</div>
+</main>
+<script type="module">
+import { BODY_AXES, WORLD_AXES, MORPHS, PRESETS, LAYERS, defaultLatent, clampLatent } from '../kernel/space.js';
+import { onomatopoeia } from '../kernel/readout.js';
+
+let z = defaultLatent();
+let node = null, ctx = null, level = 0;
+let layer = 'figure';
+const notes = [];
+const inputs = {};
+const axesEl = document.getElementById('axes');
+const morphEl = document.getElementById('morphs');
+
+function slider(parent, key, a, get, set) {
+  const row = document.createElement('div'); row.className = 'row';
+  row.innerHTML = `<label style="grid-column:1/-1">${a.label}（${key}）</label><div class="slider"><span class="pole">${a.poles[0]}</span><input type="range" min="${a.min}" max="${a.max}" step="0.01"><span class="pole r">${a.poles[1]}</span></div>`;
+  const inp = row.querySelector('input'); inp.value = get();
+  inp.oninput = () => { set(Number(inp.value)); push(); };
+  parent.appendChild(row);
+  return () => { inp.value = get(); };
+}
+
+const refreshers = [];
+function build() {
+  axesEl.innerHTML = ''; morphEl.innerHTML = ''; refreshers.length = 0;
+  let h = document.createElement('h2'); h.textContent = '世界（共有）'; axesEl.appendChild(h);
+  for (const [k, a] of Object.entries(WORLD_AXES)) refreshers.push(slider(axesEl, k, a, () => z[k], (v) => { z[k] = v; }));
+  h = document.createElement('h2'); h.textContent = '音源'; axesEl.appendChild(h);
+  const tabs = document.createElement('div');
+  for (const l of LAYERS) {
+    const b = document.createElement('button'); b.textContent = { ground: '地（ground）', figure: '図（figure）', texture: '粒（texture）' }[l];
+    if (l === layer) b.style.borderColor = 'var(--accent)';
+    b.onclick = () => { layer = l; build(); };
+    tabs.appendChild(b);
+  }
+  axesEl.appendChild(tabs);
+  for (const [k, a] of Object.entries(BODY_AXES)) refreshers.push(slider(axesEl, k, a, () => z[layer][k], (v) => { z[layer][k] = v; }));
+  for (const [k, m] of Object.entries(MORPHS)) refreshers.push(slider(morphEl, k, { label: m.label, min: 0, max: 1, poles: ['', m.example] }, () => z[layer].morph[k], (v) => { z[layer].morph[k] = v; }));
+}
+build();
+
+const pre = document.getElementById('presets');
+for (const name of Object.keys(PRESETS)) {
+  const b = document.createElement('button'); b.textContent = name;
+  b.onclick = () => { z = clampLatent(PRESETS[name]); build(); push(); };
+  pre.appendChild(b);
+}
+
+function push() {
+  document.getElementById('ono').textContent = onomatopoeia(clampLatent(z));
+  if (node) node.port.postMessage({ type: 'set', latent: z });
+}
+push();
+
+document.getElementById('start').onclick = async (e) => {
+  if (ctx) { if (ctx.state === 'running') { await ctx.suspend(); e.target.textContent = '▶ 再開'; } else { await ctx.resume(); e.target.textContent = '■ 一時停止'; } return; }
+  ctx = new AudioContext({ sampleRate: 48000 });
+  await ctx.audioWorklet.addModule('./worklet.js');
+  node = new AudioWorkletNode(ctx, 'kernel', { outputChannelCount: [2] });
+  node.connect(ctx.destination);
+  node.port.onmessage = (m) => {
+    if (m.data.type === 'level') level = m.data.rms;
+    if (m.data.type === 'note') notes.push({ ...m.data, t: performance.now() });
+  };
+  push();
+  e.target.textContent = '■ 一時停止';
+};
+
+// --- 最小の視覚化（後で本格的なビジュアライザに置き換える）
+const cv = document.getElementById('cv'), g = cv.getContext('2d');
+function resize() { cv.width = cv.clientWidth * devicePixelRatio; cv.height = cv.clientHeight * devicePixelRatio; }
+addEventListener('resize', resize); resize();
+
+function blob(x, y, r, edge, seed) {
+  // edge=0 → 丸（bouba）、edge=1 → 星形（kiki）
+  const n = 9, pts = 180;
+  g.beginPath();
+  for (let i = 0; i <= pts; i++) {
+    const a = (i / pts) * Math.PI * 2;
+    const spike = Math.pow(Math.abs(Math.cos((a * n) / 2 + seed)), 1 + 30 * (1 - edge));
+    const rr = r * (1 - 0.55 * edge + 0.9 * edge * spike);
+    g.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+  }
+  g.closePath();
+}
+
+function draw() {
+  const W = cv.width, H = cv.height, Zw = clampLatent(z);
+  const water = Zw.medium;
+  g.fillStyle = `rgba(${11 - 8 * water},${13 + 4 * water},${18 + 22 * water},${0.18 + 0.3 * Zw.space})`;
+  g.fillRect(0, 0, W, H);
+  const now = performance.now();
+  while (notes.length && now - notes[0].t > 8000) notes.shift();
+  g.filter = `blur(${Zw.distance * 14 * devicePixelRatio}px)`;
+  for (const n of notes) {
+    const Z = { ...Zw[n.layer || 'figure'], space: Zw.space };
+    const age = (now - n.t) / 1000;
+    const life = Math.max(0, 1 - age / (2 + 6 * Z.space));
+    if (!life) continue;
+    const yN = 1 - (Math.log2(n.freq / 40) / 6);
+    const x = W * (0.5 + 0.35 * Math.sin(n.t * 0.0007 + n.semi)) ;
+    const y = H * Math.min(0.95, Math.max(0.05, yN)) + age * 30 * (-Z.lift) * devicePixelRatio;
+    const r = (20 + 140 * Z.size) * devicePixelRatio * (0.6 + 0.4 * life) * (1 + level);
+    const L = 20 + 70 * Z.bright;
+    const hue = 210 - 40 * Z.bright + 20 * water;
+    blob(x, y, r, Z.edge, n.semi);
+    g.fillStyle = `hsla(${hue}, ${20 + 40 * (1 - Z.rough)}%, ${L}%, ${0.08 + 0.5 * life * life})`;
+    g.fill();
+    if (Z.rough > 0.05) { g.lineWidth = (1 + 4 * Z.rough) * devicePixelRatio; g.setLineDash([2 * devicePixelRatio, (8 - 6 * Z.rough) * devicePixelRatio]); g.strokeStyle = `hsla(${hue},30%,${L}%,${0.3 * life})`; g.stroke(); g.setLineDash([]); }
+  }
+  g.filter = 'none';
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

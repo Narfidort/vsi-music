@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Test Bench</title>
+<style>
+  :root { --bg: #fff; --fg: #222; --mute: #888; --line: #e6e6e6; --accent: #6a5cff; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #111; --fg: #eee; --mute: #999; --line: #333; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+  h1 { font-size: 16px; font-weight: 600; margin: 0 0 12px; }
+  section { border-top: 1px solid var(--line); padding: 10px 0; }
+  label { color: var(--mute); margin-right: 6px; }
+  button, select, input { font: inherit; margin: 2px; }
+  button { border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  pre { background: color-mix(in srgb, var(--fg) 5%, transparent); padding: 8px; border-radius: 6px; max-height: 260px; overflow: auto; font-size: 12px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  #status { color: var(--mute); }
+</style>
+</head>
+<body>
+<h1>VSI Music — API 試験台</h1>
+<div class="row"><button id="start">▶ 開始</button><span id="status">停止中</span><label><input type="checkbox" id="bridge"> 外部ゲームの橋（WebSocket）</label></div>
+
+<section>
+  <div class="row"><label>情景・感情</label><select id="scene"></select><input id="custom" placeholder="例: 焚き火・追悼" size="14"><button id="go">situation</button>
+    <label>切り替え</label><select id="transition"><option>bar</option><option>phrase</option><option>now</option></select></div>
+  <div class="row"><label>激しさ</label><input type="range" id="intensity" min="0" max="1" step="0.01" value="0.5"><span id="iv">0.50</span></div>
+</section>
+<section>
+  <div class="row"><label>合図</label><button data-cue="boss">boss</button><button data-cue="calm">calm</button><button data-cue="silence">silence</button><button data-cue="build">build</button></div>
+  <div class="row"><label>信号 danger</label><input type="range" id="danger" min="0" max="1" step="0.01" value="0"><span id="dv">0.00</span><small style="color:var(--mute)">（bind: 激しさ +0.6、粗さ +0.4、浮沈 −0.5、活性 +0.3）</small></div>
+  <div class="row"><label>言葉</label><input id="say" placeholder="もっと切なく / 夜明けの希望" size="24"><button id="sayb">say</button><span id="sayr" style="color:var(--mute)"></span></div>
+  <div class="row"><label>好み</label><button id="like">好き</button><button id="dislike">違う</button></div>
+</section>
+<section><label>状態</label><pre id="state">—</pre></section>
+<section><label>イベント</label><pre id="log"></pre></section>
+
+<script type="module">
+import { MusicClient } from '../runtime/client.js';
+const $ = (id) => document.getElementById(id);
+let music = null;
+const logs = [];
+const log = (s) => { logs.unshift(`${new Date().toLocaleTimeString()} ${s}`); $('log').textContent = logs.slice(0, 80).join('\n'); };
+
+const { vocabulary } = await import('../../core/lexicon.js');
+const vocab = vocabulary();
+for (const g of ['presets', 'emotions', 'scenes']) {
+  const og = document.createElement('optgroup'); og.label = g;
+  for (const n of vocab[g]) { const o = document.createElement('option'); o.textContent = n; og.append(o); }
+  $('scene').append(og);
+}
+$('scene').value = '優しさ';
+
+$('start').onclick = async () => {
+  if (!music) {
+    $('status').textContent = '読み込み中…';
+    music = await MusicClient.create({ scene: $('scene').value, bridge: $('bridge').checked, onProgress: (d, n) => ($('status').textContent = `読み込み中 ${d}/${n}`) });
+    music.on('section', (e) => log(`区間 ${e.name}(${e.bars}) 歩容=${e.gait} ${e.bpm.toFixed(0)}BPM 調=${e.key} 進行=${e.prog}`));
+    music.on('transition', (e) => log(`◇ 切り替え ${e.from} → ${e.to} ${e.bpm.toFixed(0)}BPM`));
+    music.on('cue', (e) => log(`◆ 合図 ${e.name} → ${e.section}`));
+    music.on('record', (e) => log(`記録 ${e.kind} ${e.score ?? ''} ${e.note ?? ''}`));
+    await music.bind('danger', { intensity: 0.6, 'ground.rough': 0.4, lift: -0.5, energy: 0.3 });
+    setInterval(async () => { const s = await music.state(); $('state').textContent = JSON.stringify({ ...s, latent: undefined }, null, 1); }, 500);
+  }
+  if (music.ctx.state === 'running') { await music.stop(); $('start').textContent = '▶ 開始'; $('status').textContent = '停止中'; }
+  else { await music.start(); $('start').textContent = '■ 停止'; $('status').textContent = '再生中'; }
+};
+const situation = () => music?.situation({ scene: $('custom').value.trim() || $('scene').value, intensity: +$('intensity').value, transition: $('transition').value }).catch((e) => log('エラー ' + e.message));
+$('go').onclick = situation; $('scene').onchange = () => { $('custom').value = ''; situation(); };
+$('intensity').oninput = (e) => { $('iv').textContent = (+e.target.value).toFixed(2); music?.situation({ intensity: +e.target.value }); };
+$('danger').oninput = (e) => { $('dv').textContent = (+e.target.value).toFixed(2); music?.signal('danger', +e.target.value); };
+document.querySelectorAll('[data-cue]').forEach((b) => (b.onclick = () => music?.cue(b.dataset.cue)));
+$('sayb').onclick = async () => { if (!music) return; $('sayr').textContent = '解釈中…'; try { const r = await music.say($('say').value); $('sayr').textContent = JSON.stringify(r); } catch (e) { $('sayr').textContent = 'エラー ' + e.message; } };
+$('like').onclick = () => music?.feedback(1); $('dislike').onclick = () => music?.feedback(-1);
+</script>
+</body>
+</html>

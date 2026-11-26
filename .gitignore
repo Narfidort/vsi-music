@@ -1,0 +1,31 @@
+# 秘密・個人
+.env
+feedback/
+experiments/
+# 著作権のある音源と、そこから作った図・特徴量（ローカルの分析専用。再配布しない）
+corpus/
+listen/
+# 大きな素材（元の録音集は配布元から取得する: tools/build_samples.py の説明を参照）
+assets/vsco/
+assets/vcsl/
+assets/samples/
+# 環境
+.venv/
+node_modules/
+tools/embed/node_modules/
+.DS_Store
+__pycache__/
+*.pyc
+# 開発の記録（ローカルのみ）: 試聴の評価や個人的な参照を含むため公開しない。公開するのは 08（API）と 09（研究ノート）
+docs/00_*.md
+docs/01_*.md
+docs/02_*.md
+docs/03_*.md
+docs/04_*.md
+docs/05_*.md
+docs/06_*.md
+docs/07_*.md
+docs/dev_readme.md
+docs/fig_*.png
+out/
+tools/embed/node_modules/

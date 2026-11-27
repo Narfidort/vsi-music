@@ -249,9 +249,25 @@ for (const mn of vocab.manners || []) {
 }
 // テーマ: 主題の旋律（音階の度数）と和音（ローマ数字）。サビでそのまま奏で、場面に合わせて姿を変える
 // 主題のプリセット（著作権の切れた旋律とオリジナル）: 選ぶと入力欄に入り、すぐサビで聞こえる
+// 主題の一覧 = 組み込み（著作権の切れたものとオリジナル）+ 個人用（ローカルのサーバーがあるときだけ。tools/private_themes.js）
+const ALL_THEMES = { ...THEMES };
+let PRIVATE = {};
 for (const [name, t] of Object.entries(THEMES)) { const o = document.createElement('option'); o.value = name; o.textContent = `${name}（${t.source.split('。')[0]}）`; $('themePick').append(o); }
+fetch('/api/private-themes').then((r) => (r.ok ? r.json() : null)).then((pt) => {
+  if (!pt || !Object.keys(pt).length) return;
+  PRIVATE = pt; Object.assign(ALL_THEMES, pt);
+  const cats = { anime: 'アニメ', game: 'ゲーム', vocaloid: 'ボカロ', western: '洋楽' };
+  const groups = {};
+  for (const [name, t] of Object.entries(pt)) {
+    const label = `個人用・${cats[t.category] || t.category || 'その他'}`;
+    if (!groups[label]) { groups[label] = document.createElement('optgroup'); groups[label].label = label; $('themePick').append(groups[label]); }
+    const o = document.createElement('option'); o.value = name; o.textContent = name; groups[label].append(o);
+  }
+  $('medleySet').style.display = ''; $('medleySet').value = 'private';
+  toast(`個人用の主題 ${Object.keys(pt).length} 曲を読み込みました（このマシンだけ）`, 3500);
+}).catch(() => {});
 $('themePick').onchange = () => {
-  const t = THEMES[$('themePick').value]; if (!t || !music) return;
+  const t = ALL_THEMES[$('themePick').value]; if (!t || !music) return;
   $('themeMel').value = t.melody; $('themeChd').value = t.chords;
   themeNow = { melody: t.melody, chords: t.chords, modal: !!t.modal, name: $('themePick').value };
   music.style({ theme: themeNow }); music.form({ section: '熱' }); toast(`テーマ: ${$('themePick').value}`, 2500);
@@ -284,7 +300,8 @@ async function toggleMedley() {
   if (medley) { stopMedley(); toast('メドレーを止めました'); return; }
   await start();
   pucks.splice(1); // メドレーの間は円盤 1 つで
-  medley = new Medley(); applyMedley(medley.current());
+  const set = $('medleySet').value, themes = set === 'private' && Object.keys(PRIVATE).length ? PRIVATE : set === 'all' ? ALL_THEMES : THEMES;
+  medley = new Medley(Math.random, { themes }); applyMedley(medley.current());
   medleyTimer = setInterval(() => applyMedley(medley.next()), 30000);
   $('medleyBtn').textContent = '■ メドレーを止める'; $('medleyGlyph').classList.add('on'); $('medleyGlyph').title = 'メドレーを止める';
 }
@@ -340,7 +357,7 @@ async function applyPreset(pr0) {
   music.mix('mood', undefined, { manner: mannerOn });
   intensity = pr.intensity ?? 0.45; lastI = -1; sendIntensity();
   themeNow = pr.theme || null; music.style({ theme: themeNow });
-  $('themeMel').value = themeNow?.melody || ''; $('themeChd').value = themeNow?.chords || ''; $('themePick').value = themeNow?.name && THEMES[themeNow.name] ? themeNow.name : '';
+  $('themeMel').value = themeNow?.melody || ''; $('themeChd').value = themeNow?.chords || ''; $('themePick').value = themeNow?.name && ALL_THEMES[themeNow.name] ? themeNow.name : '';
   dirty = true; sendMood();
   if (themeNow) music.form({ section: '熱' });
   toast(`プリセット: ${pr.name}`, 2500);

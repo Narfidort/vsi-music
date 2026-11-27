@@ -82,7 +82,8 @@
   <h2>いま</h2><div id="readout">—</div>
   <h2>テーマ（主題）</h2>
   <select id="themePick" class="tin"><option value="">著作権の切れた主題から選ぶ…</option></select>
-  <button class="small" id="medleyBtn">∞ 無限メドレー</button> <span id="medleyNow" style="font-size:11px;color:var(--faint)"></span>
+  <button class="small" id="medleyBtn">∞ 無限メドレー</button>
+  <select id="medleySet" class="tin" style="display:none;width:auto;margin-left:6px"><option value="private">個人用の曲</option><option value="all">すべての曲</option><option value="builtin">組み込みの曲</option></select> <span id="medleyNow" style="font-size:11px;color:var(--faint)"></span>
   <input id="themeMel" class="tin" placeholder="旋律 例: 1 2 3 5 | 6 5 3 - | 4 3 2 1 | 2 - - -">
   <input id="themeChd" class="tin" placeholder="和音 例: I V vi IV">
   <button class="small" id="themeSet">テーマを使う</button> <button class="small" id="themeOff">外す</button>

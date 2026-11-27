@@ -15,6 +15,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('file'); ap.add_argument('--start', type=int, default=None, help='省略 = 旋律が最初に鳴る小節から'); ap.add_argument('--bars', type=int, default=8)
 ap.add_argument('--part', type=int, default=None, help='省略 = 旋律らしいパートを自動で選ぶ'); ap.add_argument('--key', default=None); ap.add_argument('--minor', action='store_true')
 ap.add_argument('--index', type=int, default=0, help='ABC などで 1 ファイルに複数曲があるときの番号')
+ap.add_argument('--json', action='store_true', help='1 行の JSON で出す（tools/private_themes.js が使う）')
 a = ap.parse_args()
 
 obj = converter.parse(a.file)
@@ -85,14 +86,20 @@ BASE = [0, 2, 4, 5, 7, 9, 11] if k.mode != 'minor' else [0, 2, 3, 5, 7, 8, 10]
 OUT = {1: (2, -1), 3: (3, -1), 6: (4, 1), 8: (6, -1), 10: (7, -1)} if k.mode != 'minor' else {1: (2, -1), 4: (3, 1), 6: (4, 1), 9: (6, 1), 11: (7, 1)}
 tonic_pc = k.tonic.pitchClass
 first = next((n for m in sel for n in m.recurse().notes if isinstance(n, note.Note)), None)
-# 主音の基準 = 最初の音以下で最も近い主音
-tonic_midi = (first.pitch.midi - ((first.pitch.midi - tonic_pc) % 12)) if first else 60 + tonic_pc
+# 主音の基準 = 旋律（最上声）の中央の高さ以下で最も近い主音
+_mel = sorted(p for m in sel for p in top_line(m).values())
+_med = _mel[len(_mel) // 2] if _mel else (first.pitch.midi if first else 60)
+tonic_midi = _med - ((_med - tonic_pc) % 12)
 def deg_info(p):
     r = (p.midi - tonic_pc) % 12
     return (BASE.index(r) + 1, 0) if r in BASE else OUT[r]
 def token(p):
     d, acc = deg_info(p)
-    octv = math.floor((p.midi - tonic_midi - (BASE[d - 1] + acc)) / 12 + 1e-9)
+    mi = p.midi
+    # 外れすぎた音（MIDI 由来の楽譜で最上声が伴奏に飛んだ音など）はオクターブ単位で寄せる: 主音の 10 半音下〜19 半音上
+    while mi < tonic_midi - 10: mi += 12
+    while mi > tonic_midi + 19: mi -= 12
+    octv = math.floor((mi - tonic_midi - (BASE[d - 1] + acc)) / 12 + 1e-9)
     return ('#' * acc if acc > 0 else 'b' * -acc) + str(d) + ("'" * octv if octv > 0 else ',' * -octv)
 
 def gcd_frac(xs):
@@ -149,6 +156,10 @@ for m in sel:
         fig = max(cands, key=chord_score)
     chords.append(fig)
 
+if a.json:
+    import json
+    print(json.dumps({'key': k.tonic.name, 'minor': k.mode == 'minor', 'part': a.part, 'start': a.start, 'bars': len(sel), 'melody': ' | '.join(bars), 'chords': ' '.join(chords)}, ensure_ascii=False))
+    raise SystemExit
 print(f'調    {k.tonic.name} {"短調" if k.mode == "minor" else "長調"}（{a.file.split("/")[-1]}、パート {a.part}、{a.start} 小節目から {len(sel)} 小節）')
 print('旋律  ' + ' | '.join(bars))
 print('和音  ' + ' '.join(chords))

@@ -3,6 +3,7 @@
 //   POST /api/say       言葉 → 意味座標の命令（LLM。鍵は .env にだけ置き、ブラウザには出さない）
 //   POST /api/feedback  記録を feedback/log.jsonl に追記
 //   GET  /api/vocabulary
+//   GET  /api/private-themes  個人用の主題（corpus/scores/_themes.json。tools/private_themes.js で作る。git の対象外・このマシンだけ）
 //   WS   /ws?role=player  音を鳴らすブラウザ（client.js の bridge）
 //   WS   /ws?role=game    外部のゲーム。{ id, op, args } を送ると player が実行し、{ type:'result', id, value } が返る。
 //                         player のイベント（section / transition / bar / cue / record）も届く
@@ -131,6 +132,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (url.pathname === '/api/vocabulary') return json(res, 200, vocabulary());
+    if (url.pathname === '/api/private-themes') {
+      const f = ROOT + 'corpus/scores/_themes.json';
+      return existsSync(f) ? json(res, 200, JSON.parse(readFileSync(f, 'utf8'))) : json(res, 404, { error: 'no private themes' });
+    }
     if (url.pathname === '/') { res.writeHead(302, { Location: '/web/test/' }); return res.end(); }
     let rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
     if (rel.endsWith('/')) rel += 'index.html';

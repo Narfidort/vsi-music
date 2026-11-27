@@ -264,7 +264,12 @@ const isTouch = matchMedia('(pointer: coarse)').matches;
 const touchText = (t) => (isTouch ? t.replace('何もないところをダブルクリックで円盤を足す（円盤のダブルクリックで消す・ホイールで大きさ = 比率）', '何もないところをダブルタップで円盤を足す（円盤をダブルタップで消す・長押しで大きさ = 比率）').replace('/ キーでことばでも', '· · · でことばでも') : t);
 function drawPuck(p, now, hueT) {
   const r = radius(p) * (p.drag ? 1.08 : 1), h = 3; // 厚み
-  if (p.label) { g.save(); g.font = '300 10px "Hiragino Sans", system-ui'; g.textAlign = 'center'; g.fillStyle = 'rgba(90,80,160,0.75)'; g.fillText(`「${p.label}」`, p.x, p.y + r + 16); g.restore(); }
+  // 円盤の下: いま混ぜている語の上位 2 つ（言葉の円盤は、入れた言葉も）
+  { const top = Object.entries(blendAt({ x: p.u, y: p.v })).sort((x, y) => y[1] - x[1]).slice(0, 2).map(([n]) => n).join('・');
+    g.save(); g.font = '300 10px "Hiragino Sans", system-ui'; g.textAlign = 'center';
+    let yy = p.y + r + 15;
+    if (p.label) { g.fillStyle = 'rgba(90,80,160,0.75)'; g.fillText(`「${p.label}」`, p.x, yy); yy += 13; }
+    g.fillStyle = 'rgba(50,50,50,0.6)'; g.fillText(top, p.x, yy); g.restore(); }
   // マット（艶消し）: 光沢のハイライトをなくし、明暗の差の小さい拡散した陰影にする。全体の不透明度は低め
   g.save();
   g.globalAlpha = 0.55;
@@ -320,11 +325,24 @@ function frame(now) {
     if (al > 0.01) labels.push({ a, s, al });
   }
   labels.sort((x, y) => y.al - x.al);
-  const boxes = pucks.map((p) => [p.x - radius(p), p.y - radius(p), p.x + radius(p), p.y + radius(p)]);
+  // 円盤に隠れる語は消さずに、円盤のすぐ外側（その語のある方向）へ押し出して表示する（いまいる場所の語が見えるように）
+  const pk = pucks.map((p) => ({ p, r: radius(p) + 4 }));
+  // 円盤の下は「いま混ぜている語」の表示のために空けておく
+  const boxes = pucks.map((p) => { const r = radius(p); return [p.x - 60, p.y + r + 2, p.x + 60, p.y + r + (p.label ? 34 : 20)]; });
   for (const { a, s, al } of labels) {
-    const w = g.measureText(a.name).width + 4, b = [s.x - w / 2, s.y - 19, s.x + w / 2, s.y - 4];
+    let x = s.x, y = s.y - 7;
+    for (const { p, r } of pk) {
+      const dx = x - p.x, dy = y - 5 - p.y, d = Math.hypot(dx, dy);
+      if (d < r + 8) {
+        let ux = d > 1 ? dx / d : 0, uy = d > 1 ? dy / d : -1;
+        if (uy > 0.2) { ux = ux >= 0 ? 1 : -1; uy = 0; } // 下側の語は左右へ（下は語の表示に空けてある）
+        const w2 = g.measureText(a.name).width / 2;
+        x = p.x + ux * (r + 8 + w2 * Math.abs(ux)); y = p.y + uy * (r + 10) + 4;
+      }
+    }
+    const w = g.measureText(a.name).width + 4, b = [x - w / 2, y - 12, x + w / 2, y + 3];
     if (boxes.some((o) => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1])) continue;
-    boxes.push(b); g.fillStyle = `rgba(40,40,40,${0.7 * al})`; g.fillText(a.name, s.x, s.y - 7);
+    boxes.push(b); g.fillStyle = `rgba(40,40,40,${0.75 * Math.max(al, 0.5)})`; g.fillText(a.name, x, y);
   }
   // 音（五度圏の色の波紋）
   for (let i = ripples.length - 1; i >= 0; i--) {

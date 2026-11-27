@@ -27,7 +27,7 @@ export function motifFromStyle(m, S) {
 
 // ---- テーマ（主題の旋律とコード進行）: ポケモンの戦闘曲やゼルダのように、同じ主題を場面ごとに姿を変えて何度も使う ----
 //   melody: '1 2 3 5 | 6 5 3 - | 4 3 2 1 | 2 - - -'
-//           音階の度数（1〜7）。' で 1 オクターブ上、, で下。- は前の音を伸ばす、0 は休み。| は小節。1 小節の中は等分
+//           音階の度数（1〜7）。' で 1 オクターブ上、, で下、前に # / b で半音上げ下げ（例 #4 b7）。- は前の音を伸ばす、0 は休み。| は小節。1 小節の中は等分
 //   chords: 'I V vi IV'（1 小節に 1 つ。V7・IVM7・ii7・vii°・bVII・#iv° なども可。小文字 = 短三和音）
 // 場面に合わせて変形する: リズムは歩容の格子に、音階とコードは長調・短調に（同じ主題だと分かる変形）。
 export function parseThemeMelody(text) {
@@ -37,19 +37,25 @@ export function parseThemeMelody(text) {
     toks.forEach((t, i) => {
       if (t === '-') { if (notes.length) notes[notes.length - 1].dur += 1 / n; return; }
       if (t === '0' || t === 'r') return;
-      const m = /^([1-7])(['’]*)(,*)$/.exec(t); if (!m) return;
-      notes.push({ at: i / n, dur: 1 / n, deg: +m[1] - 1 + 7 * m[2].length - 7 * m[3].length });
+      // 臨時記号: #/♯ で半音上げ、b/♭ で半音下げ（長調は長音階、短調は自然短音階が基準）
+      const m = /^([#♯b♭]*)([1-7])(['’]*)(,*)$/.exec(t); if (!m) return;
+      const acc = [...m[1]].reduce((a, c) => a + (c === '#' || c === '♯' ? 1 : -1), 0);
+      notes.push({ at: i / n, dur: 1 / n, deg: +m[2] - 1 + 7 * m[3].length - 7 * m[4].length, acc });
     });
     return notes;
   });
 }
 const RN = { i: 0, ii: 2, iii: 4, iv: 5, v: 7, vi: 9, vii: 11 };
 export function parseThemeChords(text) {
-  return String(text).split(/[\s|,]+/).filter(Boolean).map((t) => {
+  const toks = String(text).split(/[\s|,]+/).filter(Boolean);
+  // 短調の主題（i で始まる）では、III・VI・VII は自然短音階の上の和音（♭III・♭VI・♭VII）
+  const minorKey = /^i(?![iv])/.test(toks[0] || '');
+  return toks.map((t) => {
     const m = /^([b♭#♯]?)(i{1,3}|iv|vi{0,2}|v|I{1,3}|IV|VI{0,2}|V)(°|o|dim)?(M7|△7|maj7|7)?$/.exec(t);
     if (!m) return null;
     const acc = m[1] === 'b' || m[1] === '♭' ? -1 : m[1] ? 1 : 0, rn = m[2], minor = rn === rn.toLowerCase();
-    const root = (RN[rn.toLowerCase()] + acc + 12) % 12;
+    const flat = minorKey && !m[1] && ['iii', 'vi', 'vii'].includes(rn.toLowerCase()) && rn !== rn.toLowerCase() ? -1 : 0;
+    const root = (RN[rn.toLowerCase()] + acc + flat + 12) % 12;
     let q = m[3] ? (m[4] === '7' ? 'dim7' : 'dim') : minor ? 'm' : 'M';
     if (m[4] === '7' && !m[3]) q = minor ? 'm7' : 'dom7';
     if (m[4] && /M7|△7|maj7/.test(m[4])) q = 'M7';
@@ -66,7 +72,7 @@ export function themeProgression(theme, minor) {
   if (minor && !themeMinor) ch = ch.map(([r, q]) => (TO_MINOR[r] && !['dom7', 'dim7'].includes(q) ? TO_MINOR[r] : [r, q]));
   if (!minor && themeMinor) ch = ch.map(([r, q]) => (TO_MAJOR[r] && q !== 'dom7' ? TO_MAJOR[r] : [r, q]));
   const isMinor = minor || (themeMinor && minor !== false);
-  return { name: `テーマ（${theme.chords}）${minor && !themeMinor ? '・短調' : !minor && themeMinor ? '・長調' : ''}`, scale: minor ? 'harmonic' : 'major', ch, drive: 0.5, chroma: 0, sink: 0, float: 0.2, energy: 0.6, theme: true, minor: isMinor };
+  return { name: `テーマ（${theme.chords}）${minor && !themeMinor ? '・短調' : !minor && themeMinor ? '・長調' : ''}`, scale: minor ? 'minor' : 'major', ch, drive: 0.5, chroma: 0, sink: 0, float: 0.2, energy: 0.6, theme: true, minor: isMinor, themeMinor };
 }
 // 主題の頭 2 小節 → 動機（A メロで展開する）
 export function motifFromTheme(theme, S) {

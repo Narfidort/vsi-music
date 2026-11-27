@@ -4,6 +4,7 @@
 import { Music } from '../core/api.js';
 import { loadSamplesNode } from './node_samples.js';
 import { writeWav } from './lib.js';
+import { THEMES as BUILTIN } from '../core/themes.js';
 loadSamplesNode();
 
 const THEMES = {
@@ -27,7 +28,13 @@ const PLAN = [
   ['冒険の序曲', '洞窟・恐怖', null, 26],
   ['冒険の序曲', '城・勝利', null, 30],
 ];
-const a = Object.fromEntries(process.argv.slice(2).join(' ').split('--').filter(Boolean).map((s) => { const [k, ...v] = s.trim().split(' '); return [k, v.join(' ')]; }));
+const a0 = Object.fromEntries(process.argv.slice(2).join(' ').split('--').filter(Boolean).map((s) => { const [k, ...v] = s.trim().split(' '); return [k, v.join(' ')]; }));
+const a = a0;
+// --themes 名前,名前,... なら、組み込みの主題を、それぞれ似合う場面・様式で 20 秒ずつ
+if (a.themes) {
+  PLAN.length = 0;
+  for (const nm of a.themes.split(',')) { const t = BUILTIN[nm]; if (!t) throw new Error('no theme ' + nm); THEMES[nm] = t; PLAN.push([nm, t.scene, t.manner || null, +(a.sec || 20)]); }
+}
 const sr = 48000, total = PLAN.reduce((s, p) => s + p[3], 0) + 4;
 const music = new Music({ sampleRate: sr, seed: 11, scene: PLAN[0][1] });
 const n = Math.round(total * sr), L = new Float32Array(n), R = new Float32Array(n);

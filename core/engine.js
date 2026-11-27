@@ -176,7 +176,9 @@ export class Engine {
     if (!sec.bridge) this.bridge = null;
     // 進行は曲の中の役割で（A メロ = 2 番目に合う進行、B メロ = サビの進行を途中から、サビ = 最も合う進行）
     this.prog = (O.progression && PROGRESSIONS.find((p) => p.name === O.progression)) || this.song.prog[sec.progRole || 'S'];
-    if (this.style.scale && WORLD_SCALES[this.style.scale]) this.prog = scaleProgression(this.style.scale); // マナーの音階（各国）: 旋法的なドローン
+    // マナーの音階（各国）: 旋法的なドローン。ただし主題に和音進行があれば主題を優先（modal: true の主題は様式の音階に乗せる）
+    const themeHarm = this.style.theme?.chords && !this.style.theme.modal;
+    if (this.style.scale && WORLD_SCALES[this.style.scale] && !themeHarm) this.prog = scaleProgression(this.style.scale);
     this.key = O.key ?? sec.key;
     this.S = S; this.step = this.beat / G.sub;
     // 機械の演奏（電子音）かどうかは区間ごとに決める。橋渡しの間は古い区間のまま（音色の種類が構造より先に替わらない）
@@ -525,7 +527,7 @@ export class Engine {
       const NSc = (WORLD_SCALES[this.prog.scale] || [0, 0, 0, 0, 0, 0, 0]).length || 7;
       const centerDeg = Math.round(Math.max(12, Math.min(28, fc)) / 12 * NSc) + (sec.lift || 0);
       const motif = this.motifs[sec.motif];
-      const mel = sec.motif === 'S' && this.themeBars?.length ? themePhrase(this.themeBars, { chords: this.chords, scale: this.prog.scale, S: this.S, center: centerDeg, bars: Math.min(8, sec.bars) }) : phrase(rng, motif, { chords: this.chords, scale: this.prog.scale, S: this.S, sub: G.sub, kind, center: centerDeg, ornament: sec.ornament, sigh: this.grief, peakLift: this.grief > 0.2 ? 2 : 0, penta: this.penta });
+      const mel = sec.motif === 'S' && this.themeBars?.length ? themePhrase(this.themeBars, { chords: this.chords, scale: this.prog.scale, S: this.S, center: centerDeg, bars: Math.min(8, sec.bars), themeMinor: this.prog.themeMinor ?? null }) : phrase(rng, motif, { chords: this.chords, scale: this.prog.scale, S: this.S, sub: G.sub, kind, center: centerDeg, ornament: sec.ornament, sigh: this.grief, peakLift: this.grief > 0.2 ? 2 : 0, penta: this.penta });
       const mids = mel.map((n) => 45 + n.semi).sort((a, b) => a - b);
       const instr = this.resolve('melody', 'figure', mids[Math.floor(mids.length / 2)] ?? 69);
       const susI = instr === 'bow' || instr === 'blow' || /smp:(.*_sus|solo_vln|flute|clarinet|oboe|bassoon|horn)$/.test(instr);

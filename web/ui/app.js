@@ -247,18 +247,18 @@ for (const mn of vocab.manners || []) {
 }
 // テーマ: 主題の旋律（音階の度数）と和音（ローマ数字）。サビでそのまま奏で、場面に合わせて姿を変える
 // 主題のプリセット（著作権の切れた旋律とオリジナル）: 選ぶと入力欄に入り、すぐサビで聞こえる
-for (const [name, t] of Object.entries(THEMES)) { const o = document.createElement('option'); o.value = name; o.textContent = `${name}（${t.source}）`; $('themePick').append(o); }
+for (const [name, t] of Object.entries(THEMES)) { const o = document.createElement('option'); o.value = name; o.textContent = `${name}（${t.source.split('。')[0]}）`; $('themePick').append(o); }
 $('themePick').onchange = () => {
   const t = THEMES[$('themePick').value]; if (!t || !music) return;
   $('themeMel').value = t.melody; $('themeChd').value = t.chords;
-  music.style({ theme: { melody: t.melody, chords: t.chords } }); music.form({ section: '熱' }); toast(`テーマ: ${$('themePick').value}`, 2500);
+  music.style({ theme: { melody: t.melody, chords: t.chords, modal: !!t.modal } }); music.form({ section: '熱' }); toast(`テーマ: ${$('themePick').value}`, 2500);
 };
 // 無限メドレー（core/medley.js）: 主題 × 場面 × 様式を組み替え続ける。一度に変えるのは 1 つだけ、場面は近いところへ
 let medley = null, medleyTimer = null;
 function moodPointOf(scene) { const [a, b] = scene.split('・'); const e = EMOTIONS[b] || EMOTIONS[SCENES[a]?.mood] || [0.3, 0.4, 0.5]; return project(e); }
 function applyMedley(st) {
   const pl = st.scene.split('・')[0];
-  if (st.change === 'theme' || st.change === 'start') { music.style({ theme: { melody: st.themeDef.melody, chords: st.themeDef.chords } }); }
+  if (st.change === 'theme' || st.change === 'start') { music.style({ theme: { melody: st.themeDef.melody, chords: st.themeDef.chords, modal: !!st.themeDef.modal } }); }
   // 場所は世界のチャンネル、気持ちは円盤（1 つ目の円盤を場面の気持ちの点へ動かす）
   sceneWord = SCENES[pl] ? pl : null; document.querySelectorAll('#scenes button').forEach((x) => x.classList.toggle('on', x.textContent === sceneWord));
   music.mix('place', sceneWord ? { [sceneWord]: 1 } : null, { role: 'world' });

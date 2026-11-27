@@ -108,7 +108,7 @@ export function melodyAxes(gait, m, over = {}) {
 
 // テーマの旋律をそのまま奏でる（サビ）。8 小節の楽節を主題の小節で埋める（主題が 4 小節なら 2 回）。
 // リズムは歩容の格子に、音高は和音ごとの音階（長調・短調）に写す。center = 主音の度数（音域）
-export function themePhrase(themeBars, { chords, scale, S, center, bars = 8 }) {
+export function themePhrase(themeBars, { chords, scale, S, center, bars = 8, themeMinor = null }) {
   const out = [], NS = (WORLD_SCALES[scale] || SCALES[scale]).length, tonic = NS * Math.round(center / NS);
   for (let b = 0; b < bars; b++) {
     const src = themeBars[b % themeBars.length] || [];
@@ -116,7 +116,11 @@ export function themePhrase(themeBars, { chords, scale, S, center, bars = 8 }) {
     for (const n of src) {
       const step = Math.min(S - 1, Math.round(n.at * S)), dur = Math.max(1, Math.round(n.dur * S));
       const d = tonic + n.deg;
-      out.push({ bar: b, step, dur: Math.min(dur, S * 2 - step), d, vel: step === 0 ? 0.92 : 0.82, semi: degSemi(d, s) });
+      // 臨時記号つきの音は、主題本来の調の基準の音階（長音階か自然短音階）から半音ずらす
+      // （場面の調に写さない: 短調の主題の導音 #7 は、長調の場面でも導音のまま）
+      const base = themeMinor === null ? /minor|harmonic|dorian/.test(scale) : themeMinor;
+      const semi = n.acc ? degSemi(d, WORLD_SCALES[scale] ? s : SCALES[base ? 'minor' : 'major']) + n.acc : degSemi(d, s);
+      out.push({ bar: b, step, dur: Math.min(dur, S * 2 - step), d, vel: step === 0 ? 0.92 : 0.82, semi });
     }
   }
   return out;

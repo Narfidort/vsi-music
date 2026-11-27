@@ -7,7 +7,9 @@
 //   上の情景語 = 場所（世界だけ）→ mix('place', …, { role: 'world' })
 //   ♡ / ✕ = フィードバック、· · ·（/ キー）= 言葉、≡ = 詳細（軸を直接）、? = 使い方
 import { MusicClient } from '../runtime/client.js';
-import { vocabulary, project } from '../../core/lexicon.js';
+import { vocabulary, project, EMOTIONS, SCENES } from '../../core/lexicon.js';
+import { THEMES } from '../../core/themes.js';
+import { Medley } from '../../core/medley.js';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
@@ -244,6 +246,38 @@ for (const mn of vocab.manners || []) {
   $('manners').append(b);
 }
 // テーマ: 主題の旋律（音階の度数）と和音（ローマ数字）。サビでそのまま奏で、場面に合わせて姿を変える
+// 主題のプリセット（著作権の切れた旋律とオリジナル）: 選ぶと入力欄に入り、すぐサビで聞こえる
+for (const [name, t] of Object.entries(THEMES)) { const o = document.createElement('option'); o.value = name; o.textContent = `${name}（${t.source}）`; $('themePick').append(o); }
+$('themePick').onchange = () => {
+  const t = THEMES[$('themePick').value]; if (!t || !music) return;
+  $('themeMel').value = t.melody; $('themeChd').value = t.chords;
+  music.style({ theme: { melody: t.melody, chords: t.chords } }); music.form({ section: '熱' }); toast(`テーマ: ${$('themePick').value}`, 2500);
+};
+// 無限メドレー（core/medley.js）: 主題 × 場面 × 様式を組み替え続ける。一度に変えるのは 1 つだけ、場面は近いところへ
+let medley = null, medleyTimer = null;
+function moodPointOf(scene) { const [a, b] = scene.split('・'); const e = EMOTIONS[b] || EMOTIONS[SCENES[a]?.mood] || [0.3, 0.4, 0.5]; return project(e); }
+function applyMedley(st) {
+  const pl = st.scene.split('・')[0];
+  if (st.change === 'theme' || st.change === 'start') { music.style({ theme: { melody: st.themeDef.melody, chords: st.themeDef.chords } }); }
+  // 場所は世界のチャンネル、気持ちは円盤（1 つ目の円盤を場面の気持ちの点へ動かす）
+  sceneWord = SCENES[pl] ? pl : null; document.querySelectorAll('#scenes button').forEach((x) => x.classList.toggle('on', x.textContent === sceneWord));
+  music.mix('place', sceneWord ? { [sceneWord]: 1 } : null, { role: 'world' });
+  const q = moodPointOf(st.scene), p = pucks[0]; glide = { p, from: { u: p.u, v: p.v }, to: { u: q.x, v: q.y }, t0: performance.now(), dur: 2500 };
+  mannerOn = st.manner; document.querySelectorAll('#manners button').forEach((x) => x.classList.toggle('on', x.textContent === mannerOn));
+  music.mix('mood', undefined, { manner: st.manner || null });
+  if (st.change === 'theme' || st.change === 'start') music.form({ section: '熱' }); // 新しい主題はすぐサビで
+  $('medleyNow').textContent = `♪ ${st.theme} × ${st.scene}${st.manner ? ' × ' + st.manner : ''}`;
+  toast(`♪ ${st.theme} × ${st.scene}${st.manner ? ' × ' + st.manner : ''}`, 3000);
+}
+let glide = null;
+$('medleyBtn').onclick = () => {
+  if (!music) return toast('先に平面を押して音を出してください');
+  if (medley) { clearInterval(medleyTimer); medley = null; $('medleyBtn').textContent = '∞ 無限メドレー'; $('medleyNow').textContent = ''; return; }
+  pucks.splice(1); // メドレーの間は円盤 1 つで
+  medley = new Medley(); applyMedley(medley.current());
+  medleyTimer = setInterval(() => applyMedley(medley.next()), 30000);
+  $('medleyBtn').textContent = '■ メドレーを止める';
+};
 $('themeSet').onclick = () => { const melody = $('themeMel').value.trim(), chords = $('themeChd').value.trim(); if (!music || !melody) return toast('旋律を入れてください'); music.style({ theme: { melody, chords } }); toast('テーマを使います（次の曲から。サビで聞こえます）', 3500); };
 $('themeOff').onclick = () => { music?.style({ theme: null }); toast('テーマを外しました'); };
 $('detailBtn').onclick = () => $('panel').classList.toggle('open');
@@ -295,6 +329,7 @@ function drawPuck(p, now, hueT) {
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  if (glide) { const k = Math.min(1, (now - glide.t0) / glide.dur), e = k * k * (3 - 2 * k); glide.p.u = glide.from.u + (glide.to.u - glide.from.u) * e; glide.p.v = glide.from.v + (glide.to.v - glide.from.v) * e; placeFromPlane(glide.p); dirty = true; if (k >= 1) glide = null; }
   if (dirty && now - lastSendT > 600) sendMood();
   tutTick(dt);
   const hueT = (now / 80) % 360;

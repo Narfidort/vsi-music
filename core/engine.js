@@ -162,7 +162,8 @@ export class Engine {
     const G = GAITS[gait];
     const S = G.beats * G.sub;
     // 曲の同一性（v1.5）: 動機・進行の組・楽器・調は曲の頭でだけ決め、1 曲の間は保つ
-    if (sec.newSong || gait !== this.gait || !this.motifs || !this.song) this.startSong(gait, m, S);
+    // 曲の頭の判断（長調・短調、進行、動機）は、補間の途中の値ではなく、移っていく先の状況で行う
+    if (sec.newSong || gait !== this.gait || !this.motifs || !this.song) this.startSong(gait, motionOf(clampLatent(this.target)), S);
     let target;
     if (O.bpm) target = O.bpm;
     else if (sec.bridge && this.bridge) target = sec.ramp ? this.bridge.to : this.baseBpm; // 橋渡しは元のテンポ（差が小さいときだけ寄せる）

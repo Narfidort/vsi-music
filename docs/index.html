@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VSI Music Docs</title>
+<style>
+  :root { --bg: #fbfbfa; --ink: #2a2a2a; --faint: #8a8a86; --hair: #e7e6e3; --code: #f1f0ec; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #141414; --ink: #e6e6e3; --faint: #8f8f8a; --hair: #2c2c2c; --code: #1e1e1e; } }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 300 15px/1.85 "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 40px 20px 80px; }
+  nav { font-size: 13px; color: var(--faint); margin-bottom: 18px; } nav a { color: var(--faint); margin-right: 14px; }
+  .rule { height: 1px; margin: 0 0 24px; background: linear-gradient(90deg, #ff7aa8, #ffc46b, #7be0a8, #6bb8ff, #b48cff); opacity: .7; }
+  h1 { font-weight: 400; font-size: 24px; line-height: 1.5; } h2 { font-weight: 400; font-size: 19px; margin-top: 40px; border-bottom: 1px solid var(--hair); padding-bottom: 4px; }
+  h3, h4 { font-weight: 500; font-size: 15px; margin-top: 28px; }
+  a { color: inherit; text-underline-offset: 3px; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; } pre code { background: none; padding: 0; }
+  blockquote { margin: 0; padding: 2px 14px; border-left: 2px solid var(--hair); color: var(--faint); }
+  .table { overflow-x: auto; } table { border-collapse: collapse; font-size: 13.5px; margin: 12px 0; min-width: 100%; }
+  th, td { border-bottom: 1px solid var(--hair); padding: 7px 10px; text-align: left; vertical-align: top; } th { font-weight: 500; white-space: nowrap; }
+  img { max-width: 100%; }
+</style>
+</head>
+<body>
+<main>
+  <nav><a href="../">← トップ</a><a href="?doc=09_research">研究ノート</a><a href="?doc=08_api">API リファレンス</a></nav>
+  <div class="rule"></div>
+  <article id="doc">読み込み中…</article>
+</main>
+<script type="module">
+// Markdown のビューア（サイトは静的なので、ブラウザで整形して表示する）
+import { marked } from 'https://cdn.jsdelivr.net/npm/marked@12.0.2/lib/marked.esm.js';
+const name = (new URLSearchParams(location.search).get('doc') || '09_research').replace(/[^\w-]/g, '');
+const el = document.getElementById('doc');
+try {
+  const res = await fetch(`./${name}.md`); if (!res.ok) throw new Error(res.status);
+  el.innerHTML = marked.parse(await res.text(), { gfm: true });
+  // 文書どうしのリンク（xx.md）はビューアへ、表は横スクロールできる枠に
+  el.querySelectorAll('a[href$=".md"]').forEach((a) => { const m = a.getAttribute('href').match(/([\w-]+)\.md$/); if (m) a.href = `?doc=${m[1]}`; });
+  el.querySelectorAll('table').forEach((t) => { const w = document.createElement('div'); w.className = 'table'; t.replaceWith(w); w.append(t); });
+  document.title = (el.querySelector('h1')?.textContent || name) + ' — VSI Music';
+} catch (e) { el.textContent = `文書を読み込めませんでした（${name}）`; }
+</script>
+</body>
+</html>

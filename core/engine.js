@@ -110,7 +110,7 @@ export class Engine {
     // 時間は拍で数える（beatNow）。音符は拍で予定し、テンポの曲線で秒に写す（テンポを連続的に変えられる）
     this.beatNow = 0; this.barStartBeat = 0; this.nextBarBeat = 0.1; this.tempoPlan = null;
     this.time = 0; this.nextBarAt = 0.05; this.barStart = 0; this.beat = 0.5; this.queue = []; this.ctr = 0; this.listeners = [];
-    this.secBar = 0; this.cycle = 0; this.prevV = null; this.master = 0.6; this.firstSection = true;
+    this.secBar = 0; this.cycle = 0; this.prevV = null; this.master = 0.6; this.firstSection = true; this.compEnv = 0; this.gE = 0; this.fE = 0; this.figGain = 0.6;
     // 適応・手動の口（core/api.js）から操作される状態
     this.style = normalizeManner(style); // スタイルマナー（core/manner.js）
     this.planner = new FormPlanner(mulberry32(seed * 31 + 7));
@@ -124,7 +124,9 @@ export class Engine {
   applyWorld() {
     const W = this.P.world;
     this.lp1.set('lp', W.lowpass, 0.6, this.sr); this.lp2.set('lp', W.lowpass * 1.2, 0.6, this.sr);
-    this.rev.set(W.rt60, 1.7, 0.2 + 0.6 * Math.max(W.medium, W.distance * 0.7)); // 遅延線の長さは固定（kernel/dsp.js の FDN.set）
+    const gk = this.glow ? Math.max(0, 1 - (this.beatNow - this.glow.from) / this.glow.len) : 0;
+    this.glowK = gk;
+    this.rev.set(W.rt60 * (1 + 1.2 * gk), 1.7, 0.2 + 0.6 * Math.max(W.medium, W.distance * 0.7)); // 遅延線の長さは固定（kernel/dsp.js の FDN.set）
   }
   // 意味座標の補間: 臨界減衰のばね（2 次）。動き出しと到着で速度が 0 になる S 字の曲線で、途中で目標が変わっても
   // 速度が連続する（折れ目がない）。所要時間 morphTime は、構造の切り替え（着地）の時刻に合わせて決める（requestChange）。
@@ -152,22 +154,15 @@ export class Engine {
   // 区間の頭: 形式の計画（無限のマルコフ連鎖）と、意味座標から歩容・テンポ・進行・動機を導く
   startSection() {
     const m = motionOf(this.z), O = this.overrides;
-    const sec = this.plan = this.planner.next(this.userI, this.contrast);
+    const sec = this.plan = this.planner.next(this.userI);
     // 橋渡しの区間は古い歩容のまま（音色・密度は先に新しい情景へ動いている = 縦の重ね替え → 横の並べ替え）
     // 着地の区間は、切り替えを決めた時点の歩容を使う（補間の途中の座標で選び直すと、決めたものと違う歩容に落ちることがある）
     const gait = sec.bridge && this.bridge ? this.bridge.gait : O.gait && GAITS[O.gait] ? O.gait : this.nextGait || this.pickGait(m);
     if (!sec.bridge) this.nextGait = null;
     const G = GAITS[gait];
     const S = G.beats * G.sub;
-    if (gait !== this.gait || !this.motifs) {
-      this.gait = gait; const rng = mulberry32(this.seed * 7919 + this.cycle++);
-      const opt = this.motifOpts(gait, m);
-      const A = this.style.motif ? motifFromStyle(this.style.motif, S) : makeMotif(rng, gait, null, opt);
-      this.motifs = { A, B: makeMotif(rng, gait, A.fixed ? null : A, opt) };
-    } else if (sec.develop) {
-      // 動機の発展: 熱の後の静で、新しい対照的な動機を生む（主題 A は保つ = 覚えられる）
-      this.motifs.B = makeMotif(mulberry32(this.seed * 104729 + this.cycle++), gait, null, this.motifOpts(gait, m));
-    }
+    // 曲の同一性（v1.5）: 動機・進行の組・楽器・調は曲の頭でだけ決め、1 曲の間は保つ
+    if (sec.newSong || gait !== this.gait || !this.motifs || !this.song) this.startSong(gait, m, S);
     let target;
     if (O.bpm) target = O.bpm;
     else if (sec.bridge && this.bridge) target = sec.ramp ? this.bridge.to : this.baseBpm; // 橋渡しは元のテンポ（差が小さいときだけ寄せる）
@@ -178,22 +173,38 @@ export class Engine {
     this.setTempo(target, { sec, gait, machine, mass: m.M, gaitChanged: gait !== this.prevGaitForTempo });
     this.prevGaitForTempo = gait;
     if (!sec.bridge) this.bridge = null;
-    this.ranked = this.allowedProgressions(m);
-    // 進行は上位 3 つから区間ごとに回す（長く聴いても同じ進行が続かない）
-    // ゆらぎ（温度）があればマナーに従って確率的に、なければ上位 3 つを区間ごとに回す
-    const pi = ((sec.prog ?? 0) + Math.floor(sec.n / 4)) % Math.min(3, this.ranked.length);
-    const T = this.style.temperature || 0;
-    const pick = T > 0 ? this.ranked.find((p) => p.name === choose(this.ranked.map((p, i) => [p.name, i * 0.15]), 'progressions', this.style, mulberry32((this.style.seed ?? this.seed) * 977 + sec.n))) : this.ranked[pi];
-    this.prog = (O.progression && PROGRESSIONS.find((p) => p.name === O.progression)) || pick;
+    // 進行は曲の中の役割で（A メロ = 2 番目に合う進行、B メロ = サビの進行を途中から、サビ = 最も合う進行）
+    this.prog = (O.progression && PROGRESSIONS.find((p) => p.name === O.progression)) || this.song.prog[sec.progRole || 'S'];
     if (this.style.scale && WORLD_SCALES[this.style.scale]) this.prog = scaleProgression(this.style.scale); // マナーの音階（各国）: 旋法的なドローン
     this.key = O.key ?? sec.key;
     this.S = S; this.step = this.beat / G.sub;
     // 機械の演奏（電子音）かどうかは区間ごとに決める。橋渡しの間は古い区間のまま（音色の種類が構造より先に替わらない）
     if (!sec.bridge) this.Dsec = this.target.D;
-    this.grief = m.grief; this.instCache = {}; this.master = gait === '跳ねる' ? 0.25 : 0.6;
+    this.grief = m.grief; this.master = gait === '跳ねる' ? 0.25 : 0.6;
+    this.amp = 0.4 + 0.6 * m.E; // 盛り上がりの振れ幅: 穏やかな場面ほど小さく
+    if (sec.afterglow) { this.glow = { from: this.beatNow, len: 2 * G.beats }; this.figGain *= 0.6; } // 燃え尽きた直後の 2 小節: 残響を深く（引いた感じ）。旋律の釣り合いも先に下げる
     this.penta = gait === '跳ねる' && (this.prog.scale === 'major' || this.prog.scale === 'lydian');
-    this.emit({ type: 'section', time: this.time, name: sec.type, bars: sec.bars, gait, bpm: this.bpm, prog: this.prog.name, key: this.key });
+    this.emit({ type: 'section', time: this.time, name: sec.type, role: sec.role, bars: sec.bars, gait, bpm: this.bpm, prog: this.prog.name, key: this.key, newSong: !!sec.newSong });
   }
+
+  // 1 曲の頭: 3 つの動機（A メロ・B メロ・サビ）と進行の組、楽器を決める
+  startSong(gait, m, S) {
+    this.gait = gait; const rng = mulberry32(this.seed * 7919 + this.cycle++);
+    const opt = this.motifOpts(gait, m), ax = opt.axes;
+    const A = this.style.motif ? motifFromStyle(this.style.motif, S) : makeMotif(rng, gait, null, opt);
+    const B = makeMotif(rng, gait, null, { ...opt, axes: { ...ax, density: ax.density + 0.05, contour: (ax.contour || 0) + 0.35 } }); // 上へ向かう溜め
+    const Sx = this.style.motif ? A : makeMotif(rng, gait, null, { ...opt, axes: { ...ax, density: ax.density + 0.08, leap: ax.leap + 0.1, contour: (ax.contour || 0) + 0.15 } }); // サビのフック
+    this.motifs = { A, B, S: Sx };
+    const ranked = this.allowedProgressions(m), T = this.style.temperature || 0;
+    // 曲ごとに進行の組を変える（上位 3 つの中で回す。同じ情景が続いても、次の曲は別の曲に聞こえる）
+    const k = (this.planner.songNo - 1) % Math.min(3, ranked.length);
+    const pS = T > 0 ? ranked.find((p) => p.name === choose(ranked.map((p, i) => [p.name, i * 0.15]), 'progressions', this.style, mulberry32((this.style.seed ?? this.seed) * 977 + this.cycle))) : ranked[Math.max(0, k)];
+    const pA = ranked[(Math.max(0, k) + 1) % ranked.length] || pS;
+    const rot = (p, k) => ({ ...p, name: `${p.name}（途中から）`, ch: [...p.ch.slice(k), ...p.ch.slice(0, k)] }); // 同じ系統で主和音以外から始まる = 溜め
+    this.song = { prog: { S: pS, A: pA, B: rot(pS, Math.min(2, pS.ch.length - 1)) } };
+    this.instCache = {}; this.planner.key = 0; this.planner.modAmount = rng() < 0.5 ? 1 : 2; // 大サビの転調の幅（曲ごと）
+  }
+  hasKit() { return ['駆ける', '行進', '跳ねる'].includes(this.gait); }
 
   // 役割の楽器を決める（区間ごとに固定。音域外の音だけ選び直す）。録音がなければ v1 の合成音源
   resolve(role, layer, midi) {
@@ -393,6 +404,7 @@ export class Engine {
     const melodic = sec.melody && sec.bars >= 8;
     if (bp === 0) this.chords = phraseChords(this.prog, melodic ? kind : 'cons', G.hr, this.grief > 0.2 && ph === 1);
     let chord = melodic ? this.chords[bp] : this.prog.ch[Math.floor(bp / G.hr) % this.prog.ch.length];
+    if (sec.role === '落ちサビ' && this.secBar === sec.bars - 1 && this.planner.peekRole() === '大サビ') chord = [((this.planner.modAmount || 2) + 7) % 12, 'dom7']; // 転調の準備: 新しい調の属七
     // 切り替えを待っている楽節の最後の小節 = ピボット和音。旋律の最後の音もその和音の音に替える
     // 'bar' では 4 小節目（文の提示部の終わり）でも切り替えるので、そこもピボットにする
     const lastBarOfPhrase = bp === 7 || this.secBar === this.plan.bars - 1 || (this.pendingMode === 'bar' && bp === 3);
@@ -414,7 +426,9 @@ export class Engine {
     // 強度: 区間の値 × 楽節内の弧（頂点は 6 小節目）。最後の区間は次第に弱く
     const arc = [0.9, 0.93, 0.97, 1, 1.04, 1.08, 1, 0.92][bp];
     // 激しさ（利用者・ゲーム）は区間の強度に足される
-    const I = Math.max(0.1, Math.min(1.15, sec.I(this.secBar, sec.bars) * arc + 0.4 * (this.userI - 0.5)));
+    // 熱の後が静かな区間なら、最後の 4 小節で徐々に下げる（参考曲: 静かになる境目の直前 4 小節で約 −2.4 dB）
+    const toCalm = 1; // v1.5.1: フィーバーの後は徐々に下げず、シュンと基準へ戻る（評価者の指摘。燃え尽きて戻る形）
+    const I = Math.max(0.1, Math.min(1.15, 0.55 + (sec.I(this.secBar, sec.bars) * arc * toCalm - 0.55) * (this.amp ?? 1) + 0.3 * (this.userI - 0.5)));
     this.I = I;
     const barDur = this.S * this.step, t0 = this.time;
     // 終止のリタルダンド: 区間の最後の小節で、次が静・間に落ちるとき（熱の後、静かな向きの切り替えの前）
@@ -433,12 +447,35 @@ export class Engine {
     const bpc = chord[2] ?? chord[0];
     const bass = (bpc % 12) - 12 + (this.gait === '跳ねる' ? 12 : 0) - ((bpc % 12) > 7 ? 12 : 0);
     const { notes, drums } = accompany(this.gait, { V, bass, S: this.S, sub: G.sub, I, rng, newChord, hr: G.hr, scale, barInPhrase: bp, density: this.z.ground.density });
+    // ---- 区間の役割による編曲（v1.5）----
+    const isLast = this.secBar === sec.bars - 1, Sb = this.S, sub = G.sub;
+    if (sec.sparse) { // 落ちサビ: 伴奏を薄く（持続音・低音・分散和音だけ、打楽器なし）
+      for (let i = notes.length - 1; i >= 0; i--) { const r = notes[i].role; if (r === 'chord' || r === 'stab' || r === 'trem') notes.splice(i, 1); else notes[i].vel *= r === 'bass' ? 0.7 : 0.8; }
+      drums.length = 0;
+    }
+    if (sec.fill && isLast) {
+      // 次の区間（サビ・大サビ）へのつなぎ。参考曲 11 曲の分析（tools/form_stats.py）: 盛り上がる境目の直前に 1 拍の無音（ブレイク）は
+      // ほぼなく、直前 4 小節で約 +3 dB 盛り上げてから入る。→ 和音は最後の 8 分だけ切り、フィルは小節の最後まで続ける
+      const cut = Sb - Math.max(1, sub / 2);
+      for (let i = notes.length - 1; i >= 0; i--) { if (notes[i].step >= cut && notes[i].role !== 'bass') notes.splice(i, 1); else if (notes[i].role !== 'bass') notes[i].dur = Math.min(notes[i].dur, cut - notes[i].step); }
+      for (let i = drums.length - 1; i >= 0; i--) if (drums[i].step >= Sb / 2 && drums[i].type !== 'kick') drums.splice(i, 1);
+      if (this.hasKit()) { // スネアのフィル（後半 2 拍）。強くなっていく
+        for (let st = Sb / 2, k = 0; st < Sb; st++, k++) drums.push({ step: st, type: 'snare', vel: 0.3 + 0.08 * k });
+        drums.push({ step: 0, type: 'swell', vel: 0.45 });
+      } else { // 打楽器のない歩容: 和音の音を駆け上がる
+        const run = [V[0], V[1], V[2] ?? V[1], V[0] + 12, V[1] + 12, (V[2] ?? V[1]) + 12];
+        const span = cut - Sb / 2; run.slice(0, Math.max(3, span)).forEach((s, k) => notes.push({ step: Sb / 2 + Math.floor((k * span) / Math.max(3, span)), dur: 1, role: 'arp', semi: s + 12, vel: 0.3 + 0.05 * k }));
+      }
+    }
+    // 溜めの最後の 2 小節: スネアの刻みが細かく・強くなっていく（勢いを溜める）
+    if (sec.type === '溜め' && this.hasKit() && this.secBar === sec.bars - 2) for (let st = 0; st < Sb; st += sub === 4 ? 2 : 1) drums.push({ step: st, type: 'snare', vel: 0.22 + 0.025 * st });
+    if (sec.crash && this.secBar === 0 && this.hasKit()) drums.push({ step: 0, type: 'cym', vel: 0.5 });
     if (this.z.ground.density > 0.01) for (const n of notes) {
       const instr = this.resolve(n.role, 'ground', 45 + n.semi);
       n.vI = I;
       // 跳ねる: 和音（その他のパート）は控えめ、ベースが重い（Yunomi: その他 5〜10%、ベース 27〜61%）
       const bal = this.gait === '跳ねる' ? { pad: 0.4, stab: 0.5, bass: 1.6 }[n.role] ?? 1 : 1;
-      const g = Pg.gain * n.vel * ROLE_GAIN[n.role] * bal * (0.55 + 0.5 * I);
+      const g = Pg.gain * n.vel * ROLE_GAIN[n.role] * bal * (0.5 + 0.55 * I); // 強度による音量差（基準とフィーバーで約 3 dB。残りは編曲の厚みで）
       const at = t0 + n.step * this.step + (n.step ? loose * gauss(rng) : 0);
       const dur = n.dur * this.step * (n.role === 'chord' ? 0.8 : 1);
       if (instr === 'bow' && n.role === 'pad') for (const [c, dt] of [[0, 0], [-7, 0.02], [6, 0.035]]) this.push('ground', at + dt, dur, n.semi + c / 100, g * 0.6, Pg, instr, n.role);
@@ -484,14 +521,13 @@ export class Engine {
       const motif = this.motifs[sec.motif];
       const mel = phrase(rng, motif, { chords: this.chords, scale: this.prog.scale, S: this.S, sub: G.sub, kind, center: centerDeg, ornament: sec.ornament, sigh: this.grief, peakLift: this.grief > 0.2 ? 2 : 0, penta: this.penta });
       const mids = mel.map((n) => 45 + n.semi).sort((a, b) => a - b);
-      this.instCache.melody = null;
       const instr = this.resolve('melody', 'figure', mids[Math.floor(mids.length / 2)] ?? 69);
       const susI = instr === 'bow' || instr === 'blow' || /smp:(.*_sus|solo_vln|flute|clarinet|oboe|bassoon|horn)$/.test(instr);
       const legato = susI ? 1.05 : 1 - 0.35 * this.z.figure.edge;
       for (const n of mel) {
-        const Ib = Math.max(0.1, sec.I(ph * 8 + n.bar, sec.bars) * [0.9, 0.93, 0.97, 1, 1.04, 1.08, 1, 0.92][n.bar] + 0.4 * (this.userI - 0.5));
+        const Ib = Math.max(0.1, 0.55 + (sec.I(ph * 8 + n.bar, sec.bars) * [0.9, 0.93, 0.97, 1, 1.04, 1.08, 1, 0.92][n.bar] - 0.55) * (this.amp ?? 1) + 0.3 * (this.userI - 0.5));
         const at = t0 + n.bar * barDur + n.step * this.step + loose * gauss(rng);
-        const g = Pf.gain * n.vel * ROLE_GAIN.melody * (0.6 + 0.45 * Ib);
+        const g = Pf.gain * n.vel * ROLE_GAIN.melody * (0.5 + 0.55 * Ib);
         const dur = n.dur * this.step * legato;
         // 電子音の旋律は跳躍で滑る（ポルタメント）
         const gl = instr === 'square' && this.prevMel !== undefined && Math.abs(n.semi - this.prevMel) >= 5 ? this.prevMel : null;
@@ -545,6 +581,12 @@ export class Engine {
         if (q.note && q.durB) q.note.dur = q.durB * this.beat; // 音の長さは鳴らす時点のテンポで
         if (q.fadeFrom !== undefined) { const f = 1 - (q.b - q.fadeFrom) / q.fadeLen; if (f <= 0.02) continue; if (q.note) q.note.gain *= f; else if (q.gain) q.gain *= f; }
         if (q.se) { this.se.trigger(q.se, q.gain, q.freq); continue; }
+        // ドラムキットの録音（電子音の歩容「跳ねる」は合成のまま）
+        if (q.drum && catalog()?.perc?.kit_snare && this.gait !== '跳ねる') {
+          const kit = { kick: 'kit_kick', snare: q.gain < 0.4 ? 'kit_snare_soft' : 'kit_snare', hat: 'kit_hat', ohat: 'kit_ohat', swell: 'cym_swell', cym: 'cym_hit', shaker: 'shaker' }[q.drum];
+          if (kit) { this.se.trigger(kit, q.gain * 0.42 * (this.drumLevel ?? 1), 0); continue; }
+        }
+        if (q.drum === 'swell' || q.drum === 'cym') { if (this.gait === '跳ねる') this.se.trigger(q.drum === 'cym' ? 'crash' : 'sweep', q.gain * 0.4, 0); continue; }
         if (q.drum === 'timp' && catalog()) { this.ground.trigger({ inst: 'timpani', freq: q.freq, dur: 0.6, gain: q.gain * 0.5, vel: Math.min(1, q.gain), release: 0.8, cutoff: 20000 }); continue; }
         if (q.drum) { this.drums.trigger(q.drum, q.gain, q.freq, this.time); continue; }
         this[q.layer].trigger(q.note, this.P[q.layer]);
@@ -554,11 +596,23 @@ export class Engine {
       // サイドチェイン: キックで地がへこむ（ダンス音楽の呼吸）
       const sc = this.drums.lastKick >= 0 ? 1 - 0.6 * Math.exp(-(this.time - this.drums.lastKick) / 0.12) : 1;
       const dr = this.drums.tick() * (this.gait === '跳ねる' ? 3.5 : 0.5);
-      let x = this.ground.tick(this.P.ground) * sc + this.figure.tick(this.P.figure) * (0.7 + 0.3 * sc) + dr + this.se.tick() + ((this.Dsec ?? W.D) >= 0.95 ? 0 : this.texture.tick(this.P.texture, this.z.texture, W));
+      // 図と地の釣り合い（ミキシング担当がフェーダーを動かすように）: 旋律を伴奏 + 5 dB に保つ。
+      // 伴奏が厚くなる溜め・サビで旋律も一緒に大きくなり、緩急が音量にも出る（v1.5.1: 旋律が伴奏より 10 dB 大きく、全体の音量を決めていた）
+      const gy = this.ground.tick(this.P.ground), fy = this.figure.tick(this.P.figure);
+      this.gE += (gy * gy - this.gE) * 2e-5; this.fE += (fy * fy - this.fE) * 2e-5;
+      // 旋律が鳴っている区間でだけ合わせる（間奏で旋律が休む間に上げすぎない）。上限 1.4、追従は約 1 秒
+      if (this.plan?.melody && this.secBar >= 1 && this.fE > 1e-7 && this.gE > 1e-8) { const want = Math.min(1.4, Math.max(0.2, Math.sqrt((this.gE * 3.16) / this.fE) * this.figGain)); this.figGain += (want - this.figGain) * 4e-5; }
+      let x = gy * sc + fy * this.figGain * (0.7 + 0.3 * sc) + dr + this.se.tick() + ((this.Dsec ?? W.D) >= 0.95 ? 0 : this.texture.tick(this.P.texture, this.z.texture, W));
       x = this.hp.tick(x); x = this.lp2.tick(this.lp1.tick(x));
       this.rev.tick(x - 0.8 * dr, out);
-      Lout[offset + i] = Math.tanh((x * W.direct + out[0] * W.revLevel) * this.master);
-      Rout[offset + i] = Math.tanh((x * W.direct + out[1] * W.revLevel) * this.master);
+      // 仕上げのコンプレッサー（ピークだけを軽く抑える。比 2:1。強くすると基準とフィーバーの差まで均してしまう）
+      const rl = W.revLevel * (1 + 0.8 * (this.glowK || 0)), dl = W.direct * (1 - 0.25 * (this.glowK || 0)); // 余韻: 残響が前に、直接音が少し引く
+      let l = (x * dl + out[0] * rl) * this.master, r = (x * dl + out[1] * rl) * this.master;
+      const lev = Math.max(Math.abs(l), Math.abs(r));
+      this.compEnv = lev > this.compEnv ? this.compEnv + (lev - this.compEnv) * 0.004 : this.compEnv + (lev - this.compEnv) * 0.00012;
+      const thr = 0.4, cg = this.compEnv > thr ? Math.pow(this.compEnv / thr, 1 / 2 - 1) : 1;
+      Lout[offset + i] = Math.tanh(l * cg);
+      Rout[offset + i] = Math.tanh(r * cg);
       this.time += dt; this.beatNow += dt / this.beat;
     }
   }

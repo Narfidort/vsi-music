@@ -69,6 +69,12 @@ PERC = {
 PERC2 = {  # VCSL: (フォルダ, 正規表現)
     "frame_drum": ("Membranophones/Struck Membranophones/Frame Drum", r"HitMuted_v2"), "darbuka": ("Membranophones/Struck Membranophones/Darbuka", r"hit_vl2"),
     "handbell": ("Idiophones/Struck Idiophones/Hand Bells, Nepalese", r"HB_[1-4]"),
+    # ドラムキット（8 ビートの歩容「駆ける」など。合成のノイズの小太鼓は「スチャスチャ」とうるさかった）
+    "kit_kick": ("Membranophones/Struck Membranophones/Bass Drum 1", r"hit_v5"), "kit_snare": ("Membranophones/Struck Membranophones/Snare Drum, Modern 1", r"HitSN_v5"),
+    "kit_snare_soft": ("Membranophones/Struck Membranophones/Snare Drum, Modern 1", r"HitSN_v3"), "kit_hat": ("Idiophones/Struck Idiophones/Hi-Hat Cymbal", r"HitC_v1|HitC_v3"),
+    "kit_ohat": ("Idiophones/Struck Idiophones/Hi-Hat Cymbal", r"HitO_rr"), "kit_tom": ("Membranophones/Struck Membranophones/Tom 1", r"TomH_HitS_v2"),
+    "shaker": ("Idiophones/Struck Idiophones/Shaker, Small", r"Shaker_Slap"), "cym_swell": ("Idiophones/Struck Idiophones/Suspended Cymbal 1", r"roll_f1_nloop"),
+    "cym_hit": ("Idiophones/Struck Idiophones/Suspended Cymbal 1", r"hit_fff1|hit_f1$"),
 }
 
 def vel_of(name):
@@ -143,7 +149,7 @@ if not only or 'perc2' in only:
         fs = [f for f in sorted(glob.glob(os.path.join(V2, d, '*.wav'))) if re.search(rx, Path(f).stem)][:4]
         lst = []
         for i, f in enumerate(fs):
-            y = load(f, 4.0); m = measure(y, pitched=False); out = OUT / 'perc' / f'{name}_{i}.wav'; save(y, out)
+            y = load(f, 6.0 if name == 'cym_swell' else 4.0); m = measure(y, pitched=False); out = OUT / 'perc' / f'{name}_{i}.wav'; save(y, out)
             lst.append({'file': str(out), 'len': len(y) / SR, **m})
         if lst: cat['perc'][name] = lst; print('perc', name, len(lst))
 if not only:

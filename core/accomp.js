@@ -48,13 +48,24 @@ export function accompany(gait, c) {
       if (I >= 0.85) for (let st = 0; st < S; st += 2) n(st, 1, 'chord', bass + 12 + (st % 4 ? 1 : 0), 0.4); // 半音の往復のオスティナート
       break;
     }
+    case '駆ける': {
+      // 8 ビート: 8 分のベース（拍の頭を強く）、和音の刻み（1 拍目・2 拍目の裏の先取り・3 拍目・4 拍目）、サビでは弦の持続
+      for (let st = 0; st < S; st++) if (I >= 0.6 || st % 2 === 0) n(st, 1, 'bass', bass + (st === S - 1 && I >= 0.8 ? 12 : 0), st % 2 ? 0.55 : 0.75);
+      for (const [st, du, v] of [[0, 3, 0.4], [3, 1, 0.32], [4, 2, 0.36], [6, 2, 0.3]]) for (const x of V) n(st, du, 'chord', x, v);
+      if (I >= 0.85 && newChord) for (const x of V) n(0, S, 'pad', x + 12, 0.28);
+      if (I >= 0.9) for (let st = 0; st < S; st++) n(st, 1, 'arp', V[st % V.length] + 24, 0.18);
+      // ドラム: キック 1・3 拍（サビは 2 拍目の裏も）、スネア 2・4 拍、ハイハット 8 分（弱く）
+      if (I >= 0.5) { for (const st of I >= 0.85 ? [0, 3, 4] : [0, 4]) drums.push({ step: st, type: 'kick', vel: 0.8 }); for (const st of [2, 6]) drums.push({ step: st, type: 'snare', vel: I >= 0.85 ? 0.55 : 0.38 }); }
+      if (I >= 0.45) for (let st = 0; st < S; st++) drums.push({ step: st, type: 'hat', vel: st % 2 ? 0.16 : 0.24 });
+      break;
+    }
     case '行進': {
-      // ズン・チャ（低音 = 1・3 拍、和音 = 2・4 拍）+ ホルンの持続 + 小太鼓・ティンパニ
+      // ズン・チャ（低音 = 1・3 拍、和音 = 2・4 拍）+ ホルンの持続 + 小太鼓（弱く）・ティンパニ
       for (const st of [0, 8]) n(st, 4, 'bass', st ? bass + 7 - 12 : bass, 0.85);
-      for (const st of [4, 12]) for (const v of V) n(st, 3, 'chord', v, 0.45);
+      for (const st of [4, 12]) for (const v of V) n(st, 3, 'chord', v, 0.3);
       if (I >= 0.6 && newChord) for (const v of V) n(0, S, 'pad', v, 0.3);
       if (I >= 0.5) drums.push({ step: 0, type: 'timp', vel: 0.8, semi: bass });
-      if (I >= 0.7) for (const st of [4, 12, 14, 15]) drums.push({ step: st, type: 'snare', vel: st === 15 ? 0.25 : 0.45 });
+      if (I >= 0.7) for (const st of [4, 12]) drums.push({ step: st, type: 'snare', vel: 0.3 });
       if (I >= 0.9) drums.push({ step: 8, type: 'timp', vel: 0.6, semi: bass + 7 });
       break;
     }

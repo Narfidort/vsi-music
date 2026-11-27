@@ -183,8 +183,9 @@ document.body.append(help);
 // ---- フィードバック・言葉 ----
 $('like').onclick = () => { if (!music) return; tut.fb = true; music.feedback(1); bloom(330); toast('♡'); };
 $('dislike').onclick = () => { if (!music) return; tut.fb = true; music.feedback(-1); bloom(210); openWord('どこが違う？（Enter で送る）', 'dislike'); };
-$('wordBtn').onclick = () => openWord('ことばで（例: もっと切なく）', 'say');
-addEventListener('keydown', (e) => { if (e.key === '/' && document.activeElement !== $('word')) { e.preventDefault(); openWord('ことばで（例: もっと切なく）', 'say'); } if (e.key === 'Escape') closeWord(); });
+const EX = ['雨の日の図書館', '和風の森で神秘的に', 'もっと明るく', 'ボス戦', '夜明けの希望', 'ケルトっぽく楽しく', '少し静かに', '亡くなった仲間を弔う'];
+$('wordBtn').onclick = () => openWord(`ことばで（例: ${EX[Math.floor(Math.random() * EX.length)]}）`, 'say');
+addEventListener('keydown', (e) => { if (e.key === '/' && document.activeElement !== $('word')) { e.preventDefault(); openWord(`ことばで（例: ${EX[Math.floor(Math.random() * EX.length)]}）`, 'say'); } if (e.key === 'Escape') closeWord(); });
 let wordMode = 'say';
 function openWord(ph, mode) { wordMode = mode; const w = $('word'); w.placeholder = ph; w.value = ''; w.style.display = 'block'; w.focus(); }
 function closeWord() { $('word').style.display = 'none'; }
@@ -210,6 +211,13 @@ function slider(parent, path, label, min = 0, max = 1) {
 }
 for (const [k, l] of AX.world) slider($('world'), k, l);
 for (const layer of ['ground', 'figure']) for (const [k, l] of AX.body) slider($(layer), `${layer}.${k}`, l, k === 'lift' ? -1 : 0, 1);
+// 様式（マナー）: 気分のチャンネルに結び付ける。もう一度押すと外す（言葉でも「和風で」「ケルトっぽく」のように選べる）
+let mannerOn = null;
+for (const mn of vocab.manners || []) {
+  const b = document.createElement('button'); b.textContent = mn;
+  b.onclick = () => { mannerOn = mannerOn === mn ? null : mn; document.querySelectorAll('#manners button').forEach((x) => x.classList.toggle('on', x.textContent === mannerOn)); music?.mix('mood', undefined, { manner: mannerOn }); toast(mannerOn ? `様式: ${mannerOn}` : '様式を外しました'); };
+  $('manners').append(b);
+}
 $('detailBtn').onclick = () => $('panel').classList.toggle('open');
 addEventListener('keydown', (e) => { if (e.key === 'Escape') $('panel').classList.remove('open'); });
 $('release').onclick = () => { music?.unset(sliders.map((s) => s.path)); toast('手動を解除'); };

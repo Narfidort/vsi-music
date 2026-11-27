@@ -50,6 +50,7 @@ export class SELayer {
   // kind: ping / sparkle は呼び出し側が鉄琴の音として予定する。ここでは音高のない録音と合成の効果音
   trigger(kind, gain, freq) {
     const rng = this.rng;
+    if (catalog()?.perc?.[kind]) { const p = this.percs.find((x) => !x.active) || this.percs[this.k++ % this.percs.length]; p.trigger(kind, gain, 1, rng); return; } // 録音の名前を直接
     const rec = { rattle: ['sleigh', 'tamb', 'guiro'], wood: ['woodblock_hi', 'claves', 'cowbell'], ping: ['triangle', 'belltree'], crash: ['crash'], zap: ['zap'] }[kind];
     if (rec && catalog()) {
       const p = this.percs.find((x) => !x.active) || this.percs[this.k++ % this.percs.length];

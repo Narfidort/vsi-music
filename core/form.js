@@ -1,65 +1,83 @@
-// 無限に続く形式（docs/07_interface.md）。
-// 評価: 1〜1.5 分で一周した感じがして飽きる。よい曲は熱さと静けさを鋭く切り替える。
-// 区間の種類（強度の型）:
-//   静   … 落ち着き。旋律は控えめ
-//   溜め … 強度が小節ごとに上がる。最後に盛り上げ（フィル・上昇音）
-//   熱   … 頂点。主題（動機 A）を最も強く
-//   間   … ほぼ無音。伴奏のごく一部と環境音だけ（熱の直後の落差、熱の直前の吸気）
-// 遷移はマルコフ連鎖。激しさ（利用者・ゲームの intensity）と鋭さ（contrast）で偏る。
-// 長く聴いても変わり続けるもの: 動機の発展、進行の交代、転調、旋律の楽器の交代。
+// 楽式（v1.5）: J-POP の文法で、1 曲の中に緩急をつける。docs/08_api.md
+// 評価: 「盛り上がりと静けさのつなぎが不自然。違う曲を切り替えて流しているように聞こえる」。
+// v1.4 までの原因: 区間の型（静・溜め・熱・間）を確率で選び、区間ごとに進行・旋律の楽器まで入れ替えていた。
+// v1.5: 実在の曲は「同じ曲であること（調・テンポ・楽器・動機・進行の系統）」を保ったまま、編曲の厚みで緩急をつけ、
+//   A メロ → B メロ（溜め）→ サビ の順序と、つなぎの手法（フィル・直前のブレイク・盛り上げ）で切り替える。
+//
+// 区間の型（エンジンが見る大分類）と役割（曲の中での位置）:
+//   静 = A メロ・落ちサビ、溜め = B メロ（強度が上がっていく）、熱 = サビ・大サビ、間 = イントロ・間奏・アウトロ（旋律なし）
+// 1 曲が終わると、同じ情景のまま新しい曲（新しい動機・進行の組）に入る（無限に続く）。
+//
+// v1.5.1 強度の形（評価者の言葉: Orangestar「Surge」「Encounter」のように）:
+//   静けさを基準に、勢いを溜めて溜めて突破し、フィーバーで燃え尽きて、シュンと基準へ戻って引いた感じで奏でる。
+//   = 緩和振動（溜めては一気に放つ）。
+//   基準（A メロ・落ちサビ・間奏）= 低い一定の強度（A の後半だけわずかに上向く）
+//   溜め（B メロ）= 加速する曲線で上がる（最初はゆっくり、最後に急に）
+//   フィーバー（サビ）= 突破して全部の層、サビの中でもさらに燃え上がる
+//   燃え尽き = サビの後は徐々に下げず、すぐ基準へ。最初の 2 小節は残響を深くして余韻（引いた感じ）
 
 export const SECTION_TYPES = {
-  静: { I: (b, n) => 0.45, bars: [8, 16], melody: true },
-  溜め: { I: (b, n) => 0.55 + 0.4 * (b / Math.max(1, n - 1)), bars: [8], melody: true },
-  熱: { I: (b, n) => 1.0, bars: [8, 16], melody: true },
-  間: { I: (b, n) => 0.22, bars: [4], melody: false },
+  静: { I: (b, n) => 0.38 + 0.07 * Math.max(0, (b - n / 2) / (n / 2)), bars: [8, 16], melody: true }, // 基準。後半だけわずかに上向く
+  溜め: { I: (b, n) => 0.45 + 0.5 * Math.pow(b / Math.max(1, n - 1), 1.6), bars: [8], melody: true }, // 加速して溜める
+  熱: { I: (b, n) => 1.0 + 0.1 * (b / Math.max(1, n - 1)), bars: [16], melody: true },              // 突破して燃え上がる
+  間: { I: () => 0.36, bars: [4, 8], melody: false },
 };
 
-const BASE = {
-  start: { 間: 0.5, 静: 0.5 },
-  静: { 静: 0.2, 溜め: 0.5, 熱: 0.1, 間: 0.2 },
-  溜め: { 熱: 0.85, 静: 0.1, 間: 0.05 },
-  熱: { 熱: 0.25, 間: 0.35, 静: 0.4 },
-  間: { 熱: 0.45, 静: 0.4, 溜め: 0.15 },
+// 役割: [型, 小節, 強度（null = 型の既定）, 動機, 進行の役割, 旋律の音域の上げ, その他]
+const ROLES = {
+  イントロ: ['間', 4, 0.42, null, 'S', 0, {}],
+  A: ['静', 16, null, 'A', 'A', 0, {}],
+  B: ['溜め', 8, null, 'B', 'B', 1, { fill: true }],            // 最後の小節でフィルとブレイク → サビ
+  サビ: ['熱', 16, null, 'S', 'S', 2, { crash: true }],
+  間奏: ['間', 8, 0.36, null, 'S', 0, {}],
+  落ちサビ: ['静', 8, 0.36, 'S', 'S', 1, { sparse: true, fill: true }], // 伴奏を薄く。最後でフィル → 大サビ
+  大サビ: ['熱', 16, null, 'S', 'S', 2, { crash: true, modulate: true, ornament: true }],
+  アウトロ: ['間', 4, 0.35, null, 'S', 0, {}],
 };
+const SONG = ['イントロ', 'A', 'B', 'サビ', '間奏', 'A', 'B', 'サビ', '落ちサビ', '大サビ', 'アウトロ'];
 
 export class FormPlanner {
-  constructor(rng) { this.rng = rng; this.prev = 'start'; this.hot = 0; this.n = 0; this.key = 0; this.forced = []; }
+  constructor(rng) { this.rng = rng; this.i = 0; this.n = 0; this.key = 0; this.hot = 0; this.forced = []; this.songNo = 0; this.prev = null; }
   // 区間を予約する（先頭から順に使う）。extra は計画にそのまま入る（bridge など）
   force(type, bars, extra = {}) { this.forced.push({ type, bars, extra }); }
   forceNow(type, bars, extra = {}) { this.forced = [{ type, bars, extra }]; }
-  // userI: 0..1（0.5 が中立）、contrast: 0..1（大きいほど熱の後に間へ落としやすい）
-  // 次の区間を先に決めておく（リタルダンドを掛けるか判断するため）。強制の予約があればそれが次
-  peekCalm() { const t = this.forced.length ? this.forced[0].type : this.prev === '熱' ? this._peek ??= this.draw(0.5, 0.6) : null; return t === '静' || t === '間'; }
-  draw(userI, contrast) {
-    const w = { ...BASE[this.prev] };
-    for (const k of Object.keys(w)) w[k] *= k === '熱' || k === '溜め' ? 0.3 + 1.4 * userI : 1.7 - 1.4 * userI;
-    if (this.prev === '熱') { w.間 *= 0.4 + 1.6 * contrast; w.静 *= 1.4 - contrast; }
-    let r = this.rng() * Object.values(w).reduce((a, b) => a + b, 0);
-    return Object.keys(w).find((k) => (r -= w[k]) <= 0) || '静';
+  // 状況が大きく変わったら、新しい曲として A メロから（イントロは省く）
+  restart(role = 'A') { this.i = Math.max(0, SONG.indexOf(role)); this.newSong = true; }
+  peekRole() { return this.forced.length ? null : SONG[this.i % SONG.length]; }
+  // 次が静かな区間か（リタルダンドの判断）
+  peekCalm() {
+    if (this.forced.length) return this.forced[0].type === '静' || this.forced[0].type === '間';
+    const r = ROLES[this.peekRole()]; return r[0] === '静' || r[0] === '間';
   }
-  next(userI = 0.5, contrast = 0.6) {
-    let type, bars, extra = {};
-    if (this.forced.length) ({ type, bars, extra } = this.forced.shift());
-    else {
-      type = this._peek ?? this.draw(userI, contrast); this._peek = undefined;
-      const B = SECTION_TYPES[type].bars; bars = B[Math.floor(this.rng() * B.length)];
+  next(userI = 0.5) {
+    let plan;
+    if (this.forced.length) {
+      const { type, bars, extra } = this.forced.shift();
+      // 強制の区間にも役割を持たせる（合図の熱 = サビ、静 = A、溜め = B、間 = 間奏）
+      const role = extra.role || { 熱: 'サビ', 静: 'A', 溜め: 'B', 間: '間奏' }[type];
+      plan = this.fromRole(role, { bars, ...extra, type });
+      // 合図でサビに飛んだら、曲の続きはサビの後から
+      if (role === 'サビ') this.i = SONG.indexOf('間奏');
+    } else {
+      if (this.i >= SONG.length) { this.i = 0; this.newSong = true; }
+      plan = this.fromRole(SONG[this.i++], {});
     }
-    // 変化の計画
-    const plan = { ...SECTION_TYPES[type], type, bars, n: this.n++, ...extra };
-    if (type === '熱') {
-      this.hot++;
-      plan.motif = 'A'; plan.ornament = this.hot > 1; plan.prog = 0; plan.lift = 1;
-      // 3 回目以降の熱では全音上げる（ラスサビ転調）。上げすぎたら戻す
-      if (this.hot % 3 === 0) this.key = this.key >= 4 ? 0 : this.key + 2;
-    } else if (type === '溜め') { plan.motif = 'B'; plan.prog = this.rng() < 0.5 ? 0 : 1; plan.lift = 0; }
-    else if (type === '静') {
-      plan.motif = this.rng() < 0.5 ? 'A' : 'B'; plan.prog = 1; plan.lift = -1;
-      plan.develop = this.prev === '熱' && this.rng() < 0.5; // 熱の後の静で動機を発展させる
-    } else { plan.prog = 0; }
-    plan.key = this.key;
-    plan.rotate = this.n % 3; // 旋律の楽器の交代（候補の何番目を使うか）
-    this.prev = type;
+    if (this.newSong || this.n === 0) { plan.newSong = true; this.newSong = false; this.songNo++; this.key = 0; }
+    plan.n = this.n++;
+    // 激しさ: 高いと A メロを短く、低いと A メロ・間奏を長く
+    if (plan.role === 'A' && !plan.forcedBars) plan.bars = userI > 0.65 ? 8 : 16;
+    if (plan.role === '間奏' && !plan.forcedBars) plan.bars = userI < 0.35 ? 8 : 4;
+    plan.key = plan.modulate ? this.key + (this.modAmount || 2) : this.key; // 大サビだけ転調
+    plan.afterglow = this.prev === '熱' && plan.type !== '熱'; // フィーバーの直後 = 余韻
+    this.prev = plan.type;
     return plan;
+  }
+  fromRole(role, over) {
+    const [type0, bars, I, motif, progRole, lift, extra] = ROLES[role];
+    const type = over.type || type0, base = SECTION_TYPES[type];
+    return {
+      ...base, ...extra, role, type, bars: over.bars ?? bars, forcedBars: over.bars !== undefined, motif, progRole, lift,
+      I: I === null || over.type && over.type !== type0 ? base.I : () => I, ...over, type, melody: type !== '間' && !!motif,
+    };
   }
 }

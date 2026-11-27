@@ -3,6 +3,7 @@
 //      → 近い感情の混合（blend）、十分に近い情景（scene）、はっきり名指しされたマナー
 //   2) 「もっと明るく」「少し静かに」のような相対的な指示は、規則で軸の変化（delta）と激しさに直す
 // 語彙のベクトルは事前に計算してある（tools/embed/build_vocab_embeddings.mjs → assets/web/vocab_embeddings.json）。
+import { EMOTIONS, SCENES } from '../../core/lexicon.js';
 const TRANSFORMERS = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
 let VOCAB = null, EMBED = null;
 
@@ -43,7 +44,8 @@ export async function interpretLocal(text, { base = '', embedder = null } = {}) 
   const sum = ws.reduce((a, [, w]) => a + w, 0);
   const blend = Object.fromEntries(ws.map(([n, w]) => [n, +(w / sum).toFixed(2)]));
   // 情景: 文中にある語（複数なら混合）、なければ感情と同じくらい近いもの
-  const inText = sce.filter((x) => text.includes(x.w));
+  const inText0 = sce.filter((x) => text.includes(x.w));
+  const inText = inText0.filter((x) => !inText0.some((y) => y !== x && y.w.includes(x.w))); // 「夜明け」の中の「夜」は数えない
   const directionOnly = relative && Object.keys(delta).length > 0; // 「もっと明るく」: 場所も気分も変えず、軸だけ動かす
   let sc = null;
   if (inText.length === 1) sc = inText[0];
@@ -58,6 +60,26 @@ export async function interpretLocal(text, { base = '', embedder = null } = {}) 
     if (inText.length > 1) for (const x of inText) out.blend[x.w] = +(1 / inText.length).toFixed(2); // 場所が複数: 場所も混ぜる
   }
   if (dI) out.intensityDelta = +dI.toFixed(2);
+  // ---- 連続値の解釈（v1.6）: 一覧から選ぶのではなく、語と語の「間」にも着地する ----
+  // 全感情語の近さで重みを付けて快・覚醒・支配を平均する（なめらかな補間）。語彙にない言い回しも、近い語の間の点になる
+  {
+    const TE = 0.006, ws2 = emo.map((x) => [x, Math.exp((x.s - e0) / TE)]); // 近い語に寄せた重み（平らすぎると中央に寄る）
+    const sw = ws2.reduce((a, [, w]) => a + w, 0), acc = [0, 0, 0, 0];
+    for (const [x, w] of ws2) { const e = EMOTIONS[x.w] || [0, 0.4, 0.5, 0]; for (let i = 0; i < 4; i++) acc[i] += (w / sw) * (e[i] ?? 0); }
+    out.point = { V: +acc[0].toFixed(2), A: +acc[1].toFixed(2), D: +acc[2].toFixed(2), vast: +acc[3].toFixed(2) };
+    out.mood = `vad(${out.point.V},${out.point.A},${out.point.D}${out.point.vast > 0.05 ? ',' + out.point.vast : ''})`;
+    out.near = emo.slice(0, 3).map((x) => x.w);
+    // 世界: 文中の情景語、または感情と同じくらい近い情景があるときだけ。情景の近さで重みを付けて距離・広がり・水を平均する
+    if (inText.length || (!directionOnly && sce[0].s >= e0 - 0.005)) {
+      const pool = inText.length ? inText : sce.slice(0, 4), s0 = pool[0].s, wz = pool.map((x) => [x, inText.length ? 1 : Math.exp((x.s - s0) / TE)]);
+      const sz = wz.reduce((a, [, w]) => a + w, 0), wd = [0, 0, 0];
+      for (const [x, w] of wz) { const S = SCENES[x.w]; wd[0] += (w / sz) * S.distance; wd[1] += (w / sz) * S.space; wd[2] += (w / sz) * S.medium; }
+      out.worldPoint = { distance: +wd[0].toFixed(2), space: +wd[1].toFixed(2), medium: +wd[2].toFixed(2) };
+      out.world = `world(${out.worldPoint.distance},${out.worldPoint.space},${out.worldPoint.medium})`;
+      out.nearScenes = pool.slice(0, 2).map((x) => x.w);
+    }
+    if (directionOnly) { delete out.point; delete out.mood; }
+  }
   out.reason = [(sc && `場所: ${sc.w}`) || (inText.length > 1 && `場所: ${inText.map((x) => x.w).join('+')}`), out.blend && `気分: ${Object.keys(out.blend).join('・')}`, mn && `マナー: ${mn.w}`, out.delta && `調整: ${Object.entries(out.delta).map(([a, x]) => `${a}${x > 0 ? '+' : ''}${x}`).join(' ')}`].filter(Boolean).join(' / ');
   return out;
 }

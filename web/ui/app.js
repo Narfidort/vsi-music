@@ -7,7 +7,7 @@
 //   上の情景語 = 場所（世界だけ）→ mix('place', …, { role: 'world' })
 //   ♡ / ✕ = フィードバック、· · ·（/ キー）= 言葉、≡ = 詳細（軸を直接）、? = 使い方
 import { MusicClient } from '../runtime/client.js';
-import { vocabulary } from '../../core/lexicon.js';
+import { vocabulary, project } from '../../core/lexicon.js';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('cv'), g = cv.getContext('2d');
@@ -195,9 +195,34 @@ $('word').addEventListener('keydown', async (e) => {
   tut.fb = true;
   if (wordMode === 'dislike') { music.feedback(-1, text); toast('記録しました'); return; }
   toast('…'); bloom(260);
-  try { const r = await music.say(text); toast(r.reason || 'ok', 4000); } catch { toast('うまく解釈できませんでした'); }
+  try { showInterpretation(text, await music.interpret(text)); } catch (e) { console.warn(e); toast('うまく解釈できませんでした'); }
 });
 function bloom(hue) { const p = pucks[pucks.length - 1]; for (let i = 0; i < 12; i++) ripples.push({ x: p.x, y: p.y, hue: hue + i * 8, t: 0, life: 1.6 + i * 0.05, fig: true, big: true }); }
+
+// ---- 言葉の解釈を、平面の上の円盤として見せる（v1.6）----
+// 一覧から選ぶのではなく、解釈した点（快・覚醒・支配）に「言葉の円盤」を置く。ドラッグで直せる。
+// 場所は世界のチャンネル（world(…)）、様式は気分のチャンネルのマナー、「もっと明るく」は軸の調整
+function showInterpretation(text, r) {
+  const lines = [];
+  if (r.point) {
+    const q = project([r.point.V, r.point.A, r.point.D]);
+    let tp = pucks.find((p) => p.label === text) || pucks.find((p) => p.label);
+    if (!tp) { tp = { u: q.x, v: q.y, w: 1.4, dm: 0.5, drag: false, gx: 0, gy: 0 }; pucks.push(tp); }
+    Object.assign(tp, { u: q.x, v: q.y, label: text.slice(0, 14) }); placeFromPlane(tp); dirty = true; sendMood();
+    lines.push(`気分  快 ${r.point.V >= 0 ? '+' : ''}${r.point.V.toFixed(2)}・覚醒 ${r.point.A.toFixed(2)}・支配 ${r.point.D.toFixed(2)}  （近い語: ${(r.near || []).join('・')}）`);
+  }
+  if (r.world) {
+    sceneWord = null; document.querySelectorAll('#scenes button').forEach((x) => x.classList.remove('on'));
+    music.mix('place', { [r.world]: 1 }, { role: 'world' }).catch(() => {});
+    lines.push(`場所  距離 ${r.worldPoint.distance}・広がり ${r.worldPoint.space}・水 ${r.worldPoint.medium}  （近い場所: ${(r.nearScenes || []).join('・')}）`);
+  }
+  if (r.manner) { mannerOn = r.manner; document.querySelectorAll('#manners button').forEach((x) => x.classList.toggle('on', x.textContent === mannerOn)); music.mix('mood', undefined, { manner: r.manner }); lines.push(`様式  ${r.manner}`); }
+  if (r.delta) { music.nudge(r.delta); lines.push(`調整  ${Object.entries(r.delta).map(([a, x]) => `${{ bright: '明るさ', lift: '浮沈', energy: '活性', space: '広がり', distance: '距離', size: '大きさ', edge: '角', rough: '粗さ' }[a] || a} ${x > 0 ? '+' : ''}${x}`).join('・')}`); }
+  if (r.intensityDelta) { intensity = Math.max(0, Math.min(1, intensity + r.intensityDelta)); sendIntensity(); lines.push(`激しさ ${r.intensityDelta > 0 ? '+' : ''}${r.intensityDelta}`); }
+  const card = $('card'); card.innerHTML = `<b>「${text.replace(/[<>&]/g, '')}」</b><br>` + lines.map((l) => l.replace(/[<>&]/g, '')).join('<br>') + '<br><small>円盤をドラッグして直せます</small>';
+  card.style.opacity = 1; clearTimeout(card.h); card.h = setTimeout(() => (card.style.opacity = 0), 9000);
+  music.log?.({ kind: 'say', text, result: r });
+}
 
 // ---- 詳細（手動の口） ----
 const AX = { world: [['distance', '距離'], ['space', '広がり'], ['medium', '水'], ['D', '離散化']], body: [['size', '大きさ'], ['bright', '明るさ'], ['edge', '角'], ['rough', '粗さ'], ['energy', '活性'], ['density', '密度'], ['lift', '浮沈']] };
@@ -218,6 +243,9 @@ for (const mn of vocab.manners || []) {
   b.onclick = () => { mannerOn = mannerOn === mn ? null : mn; document.querySelectorAll('#manners button').forEach((x) => x.classList.toggle('on', x.textContent === mannerOn)); music?.mix('mood', undefined, { manner: mannerOn }); toast(mannerOn ? `様式: ${mannerOn}` : '様式を外しました'); };
   $('manners').append(b);
 }
+// テーマ: 主題の旋律（音階の度数）と和音（ローマ数字）。サビでそのまま奏で、場面に合わせて姿を変える
+$('themeSet').onclick = () => { const melody = $('themeMel').value.trim(), chords = $('themeChd').value.trim(); if (!music || !melody) return toast('旋律を入れてください'); music.style({ theme: { melody, chords } }); toast('テーマを使います（次の曲から。サビで聞こえます）', 3500); };
+$('themeOff').onclick = () => { music?.style({ theme: null }); toast('テーマを外しました'); };
 $('detailBtn').onclick = () => $('panel').classList.toggle('open');
 addEventListener('keydown', (e) => { if (e.key === 'Escape') $('panel').classList.remove('open'); });
 $('release').onclick = () => { music?.unset(sliders.map((s) => s.path)); toast('手動を解除'); };
@@ -236,6 +264,7 @@ const isTouch = matchMedia('(pointer: coarse)').matches;
 const touchText = (t) => (isTouch ? t.replace('何もないところをダブルクリックで円盤を足す（円盤のダブルクリックで消す・ホイールで大きさ = 比率）', '何もないところをダブルタップで円盤を足す（円盤をダブルタップで消す・長押しで大きさ = 比率）').replace('/ キーでことばでも', '· · · でことばでも') : t);
 function drawPuck(p, now, hueT) {
   const r = radius(p) * (p.drag ? 1.08 : 1), h = 3; // 厚み
+  if (p.label) { g.save(); g.font = '300 10px "Hiragino Sans", system-ui'; g.textAlign = 'center'; g.fillStyle = 'rgba(90,80,160,0.75)'; g.fillText(`「${p.label}」`, p.x, p.y + r + 16); g.restore(); }
   g.save();
   // 側面（高さの分だけ下にずらして重ねる = 厚み）
   for (let k = h; k > 0; k -= 1) { g.beginPath(); g.arc(p.x, p.y + k, r, 0, Math.PI * 2); g.fillStyle = 'rgba(200,200,214,0.2)'; g.fill(); }

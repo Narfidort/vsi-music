@@ -41,6 +41,7 @@ export function mergeManners(list) {
     Object.assign(out.tempo, m.tempo); Object.assign(out.melody, m.melody);
     if (m.motif) out.motif = m.motif; if (raw.logo !== undefined) out.logo = m.logo;
     if (raw.scale !== undefined) out.scale = raw.scale; // 各国の音階
+    if (raw.theme !== undefined) out.theme = raw.theme; // テーマ（主題の旋律とコード）
   }
   out.progressions = out.prefer.progressions; out.instruments = out.prefer.instruments;
   return out;

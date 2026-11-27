@@ -106,6 +106,22 @@ export function melodyAxes(gait, m, over = {}) {
   return { density: base[0] + 0.25 * (E - 0.5), syncopation: base[1] + 0.2 * ((m?.edge ?? 0.4) - 0.4), leap: base[2] + 0.3 * R, repetition: base[3], contour: Math.max(-1, Math.min(1, lift)), ...over };
 }
 
+// テーマの旋律をそのまま奏でる（サビ）。8 小節の楽節を主題の小節で埋める（主題が 4 小節なら 2 回）。
+// リズムは歩容の格子に、音高は和音ごとの音階（長調・短調）に写す。center = 主音の度数（音域）
+export function themePhrase(themeBars, { chords, scale, S, center, bars = 8 }) {
+  const out = [], NS = (WORLD_SCALES[scale] || SCALES[scale]).length, tonic = NS * Math.round(center / NS);
+  for (let b = 0; b < bars; b++) {
+    const src = themeBars[b % themeBars.length] || [];
+    const s = chordScale(scale, chords[b] || chords[0]);
+    for (const n of src) {
+      const step = Math.min(S - 1, Math.round(n.at * S)), dur = Math.max(1, Math.round(n.dur * S));
+      const d = tonic + n.deg;
+      out.push({ bar: b, step, dur: Math.min(dur, S * 2 - step), d, vel: step === 0 ? 0.92 : 0.82, semi: degSemi(d, s) });
+    }
+  }
+  return out;
+}
+
 // 動機 = 2 小節のリズム + 音程の輪郭。学んだ統計があればそれを、なければ固定の型（v1）を使う
 // history: 最近の動機の署名（似たものを避ける = 長く聴いても同じ旋律が戻ってきすぎない）
 export function makeMotif(rng, gait, from = null, { axes = melodyAxes(gait), mode = 'major', history = [] } = {}) {

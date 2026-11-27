@@ -48,7 +48,10 @@ export class MusicClient {
       this.node.port.postMessage({ type: 'command', id, op, args });
     });
   }
+  // 言葉の解釈だけを返す（UI が円盤を置くなど、自分で反映したいとき）
+  async interpret(text) { const { interpretLocal } = await import('./say_local.js'); return interpretLocal(text, { base: this.base }); }
   // 言葉 → 命令。サーバー（/api/say、LLM）があればそれを、なければブラウザ内の埋め込みで解釈する（web/runtime/say_local.js）
+  // ローカルの解釈は連続値（vad(…)・world(…)）で 'say' チャンネルに入れる（一覧から選ぶのではなく、語と語の間にも着地する）
   async say(text, { mode = this.sayMode || 'auto' } = {}) {
     const state = await this.state();
     let r = null;
@@ -60,7 +63,8 @@ export class MusicClient {
     }
     if (!r) { const { interpretLocal } = await import('./say_local.js'); r = await interpretLocal(text, { base: this.base }); r.local = true; }
     const intensity = r.intensity ?? (r.intensityDelta !== undefined ? Math.max(0, Math.min(1, (state.intensity ?? 0.5) + r.intensityDelta)) : undefined);
-    if (r.scene || r.blend) await this.situation({ scene: r.scene, blend: r.blend, intensity });
+    if (r.local && (r.mood || r.world)) { const items = {}; if (r.mood) items[r.mood] = 1; if (r.world) items[r.world] = 1; await this.mix('say', items, { intensity }); }
+    else if (r.scene || r.blend) await this.situation({ scene: r.scene, blend: r.blend, intensity });
     else if (intensity !== undefined) await this.situation({ intensity });
     if (r.manner) await this.mix('main', undefined, { manner: r.manner });
     if (r.delta) await this.nudge(r.delta);

@@ -12,10 +12,10 @@ import { Synth } from './synth.js';
 import { Drums } from './drums.js';
 import { Texture } from './texture.js';
 import { FormPlanner } from './form.js';
-import { motifFromStyle } from './style.js';
+import { motifFromStyle, motifFromTheme, themeProgression, parseThemeMelody } from './style.js';
 import { normalizeManner, choose } from './manner.js';
 import { PROGRESSIONS, GAITS, WORLD_SCALES, scaleProgression, rankGaits, motionOf, gaitOf, tempoOf, harmonyTarget, rankProgressions, phraseChords, chordPcs } from './theory.js';
-import { makeMotif, phrase, chordScale, degSemi, melodyAxes, setMelodyModel } from './melody.js';
+import { makeMotif, phrase, themePhrase, chordScale, degSemi, melodyAxes, setMelodyModel } from './melody.js';
 import MELODY_MODEL from './data/melody_model.js';
 setMelodyModel(MELODY_MODEL); // 伝統の旋律から学んだ統計（なければ v1 の固定の型）
 import { accompany, voiceChord } from './accomp.js';
@@ -191,9 +191,11 @@ export class Engine {
   startSong(gait, m, S) {
     this.gait = gait; const rng = mulberry32(this.seed * 7919 + this.cycle++);
     const opt = this.motifOpts(gait, m), ax = opt.axes;
-    const A = this.style.motif ? motifFromStyle(this.style.motif, S) : makeMotif(rng, gait, null, opt);
+    const th = this.style.theme && this.style.theme.melody ? this.style.theme : null;
+    this.themeBars = th ? parseThemeMelody(th.melody) : null; // テーマ: サビでそのまま、A メロはその頭 2 小節を展開
+    const A = th ? motifFromTheme(th, S) : this.style.motif ? motifFromStyle(this.style.motif, S) : makeMotif(rng, gait, null, opt);
     const B = makeMotif(rng, gait, null, { ...opt, axes: { ...ax, density: ax.density + 0.05, contour: (ax.contour || 0) + 0.35 } }); // 上へ向かう溜め
-    const Sx = this.style.motif ? A : makeMotif(rng, gait, null, { ...opt, axes: { ...ax, density: ax.density + 0.08, leap: ax.leap + 0.1, contour: (ax.contour || 0) + 0.15 } }); // サビのフック
+    const Sx = this.style.motif || th ? A : makeMotif(rng, gait, null, { ...opt, axes: { ...ax, density: ax.density + 0.08, leap: ax.leap + 0.1, contour: (ax.contour || 0) + 0.15 } }); // サビのフック
     this.motifs = { A, B, S: Sx };
     const ranked = this.allowedProgressions(m), T = this.style.temperature || 0;
     // 曲ごとに進行の組を変える（上位 3 つの中で回す。同じ情景が続いても、次の曲は別の曲に聞こえる）
@@ -201,7 +203,10 @@ export class Engine {
     const pS = T > 0 ? ranked.find((p) => p.name === choose(ranked.map((p, i) => [p.name, i * 0.15]), 'progressions', this.style, mulberry32((this.style.seed ?? this.seed) * 977 + this.cycle))) : ranked[Math.max(0, k)];
     const pA = ranked[(Math.max(0, k) + 1) % ranked.length] || pS;
     const rot = (p, k) => ({ ...p, name: `${p.name}（途中から）`, ch: [...p.ch.slice(k), ...p.ch.slice(0, k)] }); // 同じ系統で主和音以外から始まる = 溜め
-    this.song = { prog: { S: pS, A: pA, B: rot(pS, Math.min(2, pS.ch.length - 1)) } };
+    // テーマのコード進行があれば、それをサビの進行に（場面が短調なら同主短調へ写す）。B メロはその途中から
+    const tp = this.style.theme?.chords ? themeProgression(this.style.theme, harmonyTarget(m).minor) : null;
+    const pS2 = tp || pS;
+    this.song = { prog: { S: pS2, A: tp ? pS : pA, B: rot(pS2, Math.min(2, pS2.ch.length - 1)) } };
     this.instCache = {}; this.planner.key = 0; this.planner.modAmount = rng() < 0.5 ? 1 : 2; // 大サビの転調の幅（曲ごと）
   }
   hasKit() { return ['駆ける', '行進', '跳ねる'].includes(this.gait); }
@@ -519,7 +524,7 @@ export class Engine {
       const NSc = (WORLD_SCALES[this.prog.scale] || [0, 0, 0, 0, 0, 0, 0]).length || 7;
       const centerDeg = Math.round(Math.max(12, Math.min(28, fc)) / 12 * NSc) + (sec.lift || 0);
       const motif = this.motifs[sec.motif];
-      const mel = phrase(rng, motif, { chords: this.chords, scale: this.prog.scale, S: this.S, sub: G.sub, kind, center: centerDeg, ornament: sec.ornament, sigh: this.grief, peakLift: this.grief > 0.2 ? 2 : 0, penta: this.penta });
+      const mel = sec.motif === 'S' && this.themeBars?.length ? themePhrase(this.themeBars, { chords: this.chords, scale: this.prog.scale, S: this.S, center: centerDeg, bars: Math.min(8, sec.bars) }) : phrase(rng, motif, { chords: this.chords, scale: this.prog.scale, S: this.S, sub: G.sub, kind, center: centerDeg, ornament: sec.ornament, sigh: this.grief, peakLift: this.grief > 0.2 ? 2 : 0, penta: this.penta });
       const mids = mel.map((n) => 45 + n.semi).sort((a, b) => a - b);
       const instr = this.resolve('melody', 'figure', mids[Math.floor(mids.length / 2)] ?? 69);
       const susI = instr === 'bow' || instr === 'blow' || /smp:(.*_sus|solo_vln|flute|clarinet|oboe|bassoon|horn)$/.test(instr);

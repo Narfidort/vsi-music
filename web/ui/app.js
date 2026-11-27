@@ -265,23 +265,26 @@ const touchText = (t) => (isTouch ? t.replace('何もないところをダブル
 function drawPuck(p, now, hueT) {
   const r = radius(p) * (p.drag ? 1.08 : 1), h = 3; // 厚み
   if (p.label) { g.save(); g.font = '300 10px "Hiragino Sans", system-ui'; g.textAlign = 'center'; g.fillStyle = 'rgba(90,80,160,0.75)'; g.fillText(`「${p.label}」`, p.x, p.y + r + 16); g.restore(); }
+  // マット（艶消し）: 光沢のハイライトをなくし、明暗の差の小さい拡散した陰影にする。全体の不透明度は低め
   g.save();
-  // 側面（高さの分だけ下にずらして重ねる = 厚み）
-  for (let k = h; k > 0; k -= 1) { g.beginPath(); g.arc(p.x, p.y + k, r, 0, Math.PI * 2); g.fillStyle = 'rgba(200,200,214,0.2)'; g.fill(); }
-  // 影（高いほど、持ち上げるほど大きく柔らかく）
-  g.shadowColor = 'rgba(60,60,80,0.18)'; g.shadowBlur = p.drag ? 22 : 12; g.shadowOffsetY = (p.drag ? 9 : 3) + h;
-  const body = g.createRadialGradient(p.x - r * 0.35, p.y - r * 0.45, r * 0.1, p.x, p.y, r);
-  body.addColorStop(0, 'rgba(255,255,255,0.78)'); body.addColorStop(0.7, 'rgba(244,244,248,0.62)'); body.addColorStop(1, 'rgba(222,222,232,0.6)');
+  g.globalAlpha = 0.55;
+  // 側面（厚み）
+  for (let k = h; k > 0; k -= 1) { g.beginPath(); g.arc(p.x, p.y + k, r, 0, Math.PI * 2); g.fillStyle = 'rgba(196,196,206,0.22)'; g.fill(); }
+  // 影（柔らかく、薄く）
+  g.shadowColor = 'rgba(60,60,80,0.12)'; g.shadowBlur = p.drag ? 24 : 14; g.shadowOffsetY = (p.drag ? 8 : 3) + h;
+  const body = g.createRadialGradient(p.x - r * 0.25, p.y - r * 0.3, r * 0.2, p.x, p.y, r);
+  body.addColorStop(0, 'rgba(246,246,244,0.85)'); body.addColorStop(1, 'rgba(232,232,236,0.85)');
   g.beginPath(); g.arc(p.x, p.y, r, 0, Math.PI * 2); g.fillStyle = body; g.fill();
   g.restore();
-  // 縁（厚み）: 下側に少し暗い帯、上に虹の縁
-  g.beginPath(); g.arc(p.x, p.y + 1.5, r - 1, 0.15 * Math.PI, 0.85 * Math.PI); g.strokeStyle = 'rgba(120,120,140,0.18)'; g.lineWidth = 3; g.stroke();
+  g.save();
+  g.globalAlpha = 0.5;
+  // 縁: 下側にごく薄い帯（厚み）、虹の縁は彩度を落として細く
+  g.beginPath(); g.arc(p.x, p.y + 1.2, r - 1, 0.15 * Math.PI, 0.85 * Math.PI); g.strokeStyle = 'rgba(120,120,140,0.14)'; g.lineWidth = 2.5; g.stroke();
   const rim = g.createConicGradient ? g.createConicGradient(now / 1400, p.x, p.y) : null;
-  if (rim) { for (let i = 0; i <= 6; i++) rim.addColorStop(i / 6, `hsla(${(i * 60 + hueT) % 360}, 80%, 62%, 0.7)`); g.strokeStyle = rim; }
-  else g.strokeStyle = `hsla(${hueT}, 80%, 62%, 0.7)`;
-  g.beginPath(); g.arc(p.x, p.y, r - 0.8, 0, Math.PI * 2); g.lineWidth = 1.8; g.stroke();
-  // 上面の光沢
-  g.beginPath(); g.arc(p.x, p.y, r * 0.62, 1.15 * Math.PI, 1.7 * Math.PI); g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.2; g.stroke();
+  if (rim) { for (let i = 0; i <= 6; i++) rim.addColorStop(i / 6, `hsla(${(i * 60 + hueT) % 360}, 55%, 66%, 0.75)`); g.strokeStyle = rim; }
+  else g.strokeStyle = `hsla(${hueT}, 55%, 66%, 0.75)`;
+  g.beginPath(); g.arc(p.x, p.y, r - 0.8, 0, Math.PI * 2); g.lineWidth = 1.3; g.stroke();
+  g.restore();
 }
 
 let last = performance.now();

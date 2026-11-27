@@ -611,7 +611,12 @@ export class Engine {
       this.gE += (gy * gy - this.gE) * 2e-5; this.fE += (fy * fy - this.fE) * 2e-5;
       // 旋律が鳴っている区間でだけ合わせる（間奏で旋律が休む間に上げすぎない）。上限 1.4、追従は約 1 秒
       if (this.plan?.melody && this.secBar >= 1 && this.fE > 1e-7 && this.gE > 1e-8) { const want = Math.min(1.4, Math.max(0.2, Math.sqrt((this.gE * 3.16) / this.fE) * this.figGain)); this.figGain += (want - this.figGain) * 4e-5; }
-      let x = gy * sc + fy * this.figGain * (0.7 + 0.3 * sc) + dr + this.se.tick() + ((this.Dsec ?? W.D) >= 0.95 ? 0 : this.texture.tick(this.P.texture, this.z.texture, W));
+      // 粒（泡）の層は音楽の下に敷く: 音楽（図 + 地）より約 9 dB 下に保つ（聞こえるが前に出ない）（評価: 「深海のバブルがうるさい」= 音楽より 10 dB 大きかった）。
+      // 上げるのは元の音量まで（1 倍）、追従は約 2 秒。静かな場面では泡も静かになる
+      const tx = (this.Dsec ?? W.D) >= 0.95 ? 0 : this.texture.tick(this.P.texture, this.z.texture, W);
+      this.tE = (this.tE ?? 0) + (tx * tx - (this.tE ?? 0)) * 1e-5;
+      if (this.tE > 1e-10) { const mE = this.gE + this.fE * this.figGain * this.figGain, want = Math.min(1, Math.sqrt((mE * 0.12) / this.tE)); this.texGain = (this.texGain ?? 1) + (want - (this.texGain ?? 1)) * 1e-5; }
+      let x = gy * sc + fy * this.figGain * (0.7 + 0.3 * sc) + dr + this.se.tick() + tx * (this.texGain ?? 1);
       x = this.hp.tick(x); x = this.lp2.tick(this.lp1.tick(x));
       this.rev.tick(x - 0.8 * dr, out);
       // 仕上げのコンプレッサー（ピークだけを軽く抑える。比 2:1。強くすると基準とフィーバーの差まで均してしまう）

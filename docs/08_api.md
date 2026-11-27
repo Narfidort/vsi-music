@@ -51,7 +51,7 @@ music.mix('threat', null)                                            // チャ�
 | `manner` | `name, def` | マナーを名前で登録する（上の節） |
 | `nudge` | `{ 軸: ±0.5 以内 }` | 相対的な変化（累積。次の `situation` で消える） |
 | `feedback` | `score, note?` | 好み（イベント `record`、`feedback/log.jsonl`） |
-| `say` | `text` | 言葉（client.js のみ。LLM が `situation` / `nudge` に直す） |
+| `say` | `text` | 言葉（client.js のみ）。サーバーがあれば LLM、なければブラウザ内の埋め込みで解釈する。ローカルの解釈は連続値: 全感情語の近さで重みを付けた快・覚醒・支配の点 `vad(…)` と場所の値 `world(…)` を `say` チャンネルに入れる（語と語の間にも着地する）。`interpret(text)` は解釈だけを返す（`point`, `near`, `worldPoint`, `manner`, `delta`） |
 
 #### 取引（トランザクション）と着地
 構造が変わりうる命令（`mix` / `weight` / `situation` / `cue`）は、取引を 1 つ開いて `{ tx, plan, eta }` を返す。新しい取引が来たら、古いものは `superseded`（最新が勝つ）。
@@ -91,6 +91,8 @@ music.style({ temperature: 0.3 });                     // 全体
 | `tempo` | `scale`（倍率）、`min`、`max` |
 | `melody` | 旋律の軸（理論の既定値を上書き）: `density` 音の密度、`syncopation`、`leap` 跳躍の多さ、`contour` −1 下行 ↔ +1 上行、`repetition` 同音反復 |
 | `motif` / `logo` | ライトモチーフ / 音のロゴ |
+| `theme` | テーマ（主題）: `{ melody: '1 2 3 5 \| 6 5 3 - \| 4 3 2 1 \| 2 - - -', chords: 'I V vi IV' }`。旋律は音階の度数（`'` で 1 オクターブ上、`,` で下、`-` で伸ばす、`0` は休み、`\|` は小節、小節の中は等分）、和音はローマ数字（V7・IVM7・bVII・vii° など）。サビでそのまま奏で、A メロはその頭 2 小節を展開する。リズムは歩容の格子に、音階と和音は場面の長調・短調に写す（短調の場面では I V vi IV → i V VI iv） |
+| `scale` | 各国の音階（都節・陽音階・琉球・五声・ヒジャーズ・ラースト・バイラヴ・ペロッグ・スレンドロ・ブルース…）。和声は旋法的なドローンになる |
 
 ### 手動の口（直接決める）
 

@@ -453,7 +453,8 @@ export class Engine {
     const V = newChord || !this.prevV ? voiceChord(chordPcs(chord), center, this.prevV) : this.prevV;
     this.prevV = V;
     const bpc = chord[2] ?? chord[0];
-    const bass = (bpc % 12) - 12 + (this.gait === '跳ねる' ? 12 : 0) - ((bpc % 12) > 7 ? 12 : 0);
+    // 跳ねる・スキップは 1 オクターブ上（評価: 「かわいいの低音が場違いでうるさい」= A1〜E2 のピアノが重すぎた）
+    const bass = (bpc % 12) - 12 + (['跳ねる', 'スキップ'].includes(this.gait) ? 12 : 0) - ((bpc % 12) > 7 ? 12 : 0);
     const { notes, drums } = accompany(this.gait, { V, bass, S: this.S, sub: G.sub, I, rng, newChord, hr: G.hr, scale, barInPhrase: bp, density: this.z.ground.density });
     // ---- 区間の役割による編曲（v1.5）----
     const isLast = this.secBar === sec.bars - 1, Sb = this.S, sub = G.sub;
@@ -482,7 +483,7 @@ export class Engine {
       const instr = this.resolve(n.role, 'ground', 45 + n.semi);
       n.vI = I;
       // 跳ねる: 和音（その他のパート）は控えめ、ベースが重い（Yunomi: その他 5〜10%、ベース 27〜61%）
-      const bal = this.gait === '跳ねる' ? { pad: 0.4, stab: 0.5, bass: 1.6 }[n.role] ?? 1 : 1;
+      const bal = this.gait === '跳ねる' ? { pad: 0.4, stab: 0.5, bass: 1.6 }[n.role] ?? 1 : this.gait === 'スキップ' ? { bass: 0.7 }[n.role] ?? 1 : 1; // スキップ: 低音は軽く
       const g = Pg.gain * n.vel * ROLE_GAIN[n.role] * bal * (0.5 + 0.55 * I); // 強度による音量差（基準とフィーバーで約 3 dB。残りは編曲の厚みで）
       const at = t0 + n.step * this.step + (n.step ? loose * gauss(rng) : 0);
       const dur = n.dur * this.step * (n.role === 'chord' ? 0.8 : 1);

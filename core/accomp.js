@@ -71,7 +71,8 @@ export function accompany(gait, c) {
     }
     case 'スキップ': {
       // 6/8 の弾み: 軽い低音（1 拍目）、短く切った和音（各拍の後ろ）、鉄琴のきらめき
-      n(0, 2, 'bass', bass, 0.6); n(3, 2, 'bass', bass + 7 > bass + 12 - 5 ? bass + 7 - 12 : bass + 7, 0.45);
+      // 低音は短く切って弾ませる（トイピアノの左手）。5 度は下へ
+      n(0, 1, 'bass', bass, 0.55); n(3, 1, 'bass', bass - 5, 0.4);
       for (const st of [2, 5]) for (const v of V) n(st, 1, 'chord', v, 0.3);
       if (I >= 0.6) for (const st of [1, 4]) n(st, 1, 'arp', V[(st + barInPhrase) % V.length] + 24, 0.25);
       if (I >= 0.85) for (const st of [0, 3]) drums.push({ step: st, type: 'hat', vel: 0.08 });

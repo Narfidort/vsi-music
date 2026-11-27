@@ -60,8 +60,10 @@ const ripples = [], sweeps = [];
 let beatPulse = 0, bpm = 70, section = '', gait = '';
 function toast(s, ms = 2600) { const t = $('toast'); t.textContent = s; t.style.opacity = 1; clearTimeout(toast.h); toast.h = setTimeout(() => (t.style.opacity = 0), ms); }
 
-async function start() {
-  if (music || starting) return; starting = true;
+let startP = null;
+function start() { return (startP ||= start0()); }
+async function start0() {
+  starting = true;
   $('intro').textContent = '';
   music = await MusicClient.create({ scene: '穏やか', onProgress: (d, n) => (loadP = d / n) });
   loadP = 1;
@@ -251,35 +253,123 @@ for (const [name, t] of Object.entries(THEMES)) { const o = document.createEleme
 $('themePick').onchange = () => {
   const t = THEMES[$('themePick').value]; if (!t || !music) return;
   $('themeMel').value = t.melody; $('themeChd').value = t.chords;
-  music.style({ theme: { melody: t.melody, chords: t.chords, modal: !!t.modal } }); music.form({ section: '熱' }); toast(`テーマ: ${$('themePick').value}`, 2500);
+  themeNow = { melody: t.melody, chords: t.chords, modal: !!t.modal, name: $('themePick').value };
+  music.style({ theme: themeNow }); music.form({ section: '熱' }); toast(`テーマ: ${$('themePick').value}`, 2500);
 };
 // 無限メドレー（core/medley.js）: 主題 × 場面 × 様式を組み替え続ける。一度に変えるのは 1 つだけ、場面は近いところへ
 let medley = null, medleyTimer = null;
 function moodPointOf(scene) { const [a, b] = scene.split('・'); const e = EMOTIONS[b] || EMOTIONS[SCENES[a]?.mood] || [0.3, 0.4, 0.5]; return project(e); }
 function applyMedley(st) {
   const pl = st.scene.split('・')[0];
-  if (st.change === 'theme' || st.change === 'start') { music.style({ theme: { melody: st.themeDef.melody, chords: st.themeDef.chords, modal: !!st.themeDef.modal } }); }
+  if (st.change === 'theme' || st.change === 'start') { themeNow = { melody: st.themeDef.melody, chords: st.themeDef.chords, modal: !!st.themeDef.modal, name: st.theme }; music.style({ theme: themeNow }); }
   // 場所は世界のチャンネル、気持ちは円盤（1 つ目の円盤を場面の気持ちの点へ動かす）
   sceneWord = SCENES[pl] ? pl : null; document.querySelectorAll('#scenes button').forEach((x) => x.classList.toggle('on', x.textContent === sceneWord));
   music.mix('place', sceneWord ? { [sceneWord]: 1 } : null, { role: 'world' });
-  const q = moodPointOf(st.scene), p = pucks[0]; glide = { p, from: { u: p.u, v: p.v }, to: { u: q.x, v: q.y }, t0: performance.now(), dur: 2500 };
+  // 新しい主題はすぐサビで。円盤が動き終えて気持ちを送ってから予約する（動いている間の気持ちの変化が、曲の頭からの予約を上書きしないように）
+  const fresh = st.change === 'theme' || st.change === 'start';
+  const q = moodPointOf(st.scene), p = pucks[0];
+  glide = { p, from: { u: p.u, v: p.v }, to: { u: q.x, v: q.y }, t0: performance.now(), dur: 2500, done: fresh ? () => { sendMood(); music.form({ section: '熱' }); } : null };
   mannerOn = st.manner; document.querySelectorAll('#manners button').forEach((x) => x.classList.toggle('on', x.textContent === mannerOn));
   music.mix('mood', undefined, { manner: st.manner || null });
-  if (st.change === 'theme' || st.change === 'start') music.form({ section: '熱' }); // 新しい主題はすぐサビで
   $('medleyNow').textContent = `♪ ${st.theme} × ${st.scene}${st.manner ? ' × ' + st.manner : ''}`;
   toast(`♪ ${st.theme} × ${st.scene}${st.manner ? ' × ' + st.manner : ''}`, 3000);
 }
 let glide = null;
-$('medleyBtn').onclick = () => {
-  if (!music) return toast('先に平面を押して音を出してください');
-  if (medley) { clearInterval(medleyTimer); medley = null; $('medleyBtn').textContent = '∞ 無限メドレー'; $('medleyNow').textContent = ''; return; }
+function stopMedley() {
+  if (!medley) return; clearInterval(medleyTimer); medley = null;
+  $('medleyBtn').textContent = '∞ 無限メドレー'; $('medleyNow').textContent = ''; $('medleyGlyph').classList.remove('on'); $('medleyGlyph').title = '無限メドレー';
+}
+async function toggleMedley() {
+  hideFloat();
+  if (medley) { stopMedley(); toast('メドレーを止めました'); return; }
+  await start();
   pucks.splice(1); // メドレーの間は円盤 1 つで
   medley = new Medley(); applyMedley(medley.current());
   medleyTimer = setInterval(() => applyMedley(medley.next()), 30000);
-  $('medleyBtn').textContent = '■ メドレーを止める';
+  $('medleyBtn').textContent = '■ メドレーを止める'; $('medleyGlyph').classList.add('on'); $('medleyGlyph').title = 'メドレーを止める';
+}
+$('medleyBtn').onclick = toggleMedley;
+$('medleyGlyph').onclick = toggleMedley;
+// 開いてしばらくだけ、無限メドレーの案内を浮かべる（× で消せる。消したら次からは出さない）
+function hideFloat(forever = false) { const f = $('medleyFloat'); f.classList.remove('show'); if (forever) try { localStorage.setItem('vsi_float_off', '1'); } catch {} }
+{
+  let off = false; try { off = localStorage.getItem('vsi_float_off') === '1'; } catch {}
+  if (!off) { setTimeout(() => $('medleyFloat').classList.add('show'), 1200); setTimeout(() => hideFloat(), 26000); }
+  $('medleyFloatGo').onclick = toggleMedley;
+  $('medleyFloatX').onclick = (e) => { e.stopPropagation(); hideFloat(true); };
+}
+$('themeSet').onclick = () => { const melody = $('themeMel').value.trim(), chords = $('themeChd').value.trim(); if (!music || !melody) return toast('旋律を入れてください'); themeNow = { melody, chords }; music.style({ theme: themeNow }); toast('テーマを使います（次の曲から。サビで聞こえます）', 3500); };
+$('themeOff').onclick = () => { themeNow = null; music?.style({ theme: null }); toast('テーマを外しました'); };
+
+// ---- プリセット（組み込み + ブラウザに保存）----
+// 1 つのプリセット = 円盤（気持ちの点と大きさ）・場所・激しさ・様式・テーマ。保存先は このブラウザの localStorage だけ
+const BUILTIN_PRESETS = [
+  { name: '星空ときらきら星', moods: [['優しさ', 1]], place: '星空', intensity: 0.35, theme: 'きらきら星' },
+  { name: '深海の祈り', moods: [['祈り', 1], ['神秘', 0.6]], place: '深海', intensity: 0.3 },
+  { name: '夜の街', moods: [['懐かしさ', 1], ['切なさ', 0.6]], place: '街', intensity: 0.4 },
+  { name: 'かわいいお部屋', moods: [['かわいい', 1]], place: '部屋', intensity: 0.5 },
+  { name: '森のケルト', moods: [['安らぎ', 1], ['切なさ', 0.6]], place: '森', intensity: 0.4, manner: 'ケルト', theme: 'グリーンスリーブス' },
+  { name: '祭りの夜', moods: [['はしゃぐ', 1]], place: '祭り', intensity: 0.75, manner: '和' },
+  { name: '雪原の冒険', moods: [['勇気', 1], ['決意', 0.6]], place: '雪原', intensity: 0.6, theme: '冒険の序曲' },
+  { name: 'ボス戦', moods: [['決意', 1], ['怒り', 0.7]], place: '城', intensity: 0.9 },
+  { name: '聖堂のカノン', moods: [['安らぎ', 1]], place: '聖堂', intensity: 0.35, manner: 'バロック', theme: 'カノン' },
+];
+const LS_PRESETS = 'vsi_presets_v1', LS_LAST = 'vsi_last_v1';
+const lsGet = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+let themeNow = null;
+function snapshot(name) {
+  return { name, pucks: pucks.map((p) => ({ u: +p.u.toFixed(3), v: +p.v.toFixed(3), w: p.w, label: p.label })), place: sceneWord, intensity: +intensity.toFixed(2), manner: mannerOn, theme: themeNow, saved: Date.now() };
+}
+// 組み込みの書き方（気持ちの語）→ 円盤の座標
+function resolvePreset(pr) {
+  if (pr.pucks) return pr;
+  const ps = pr.moods.map(([e, w]) => { const q = project(EMOTIONS[e]); return { u: q.x, v: q.y, w }; });
+  const t = pr.theme && THEMES[pr.theme];
+  return { ...pr, pucks: ps, theme: t ? { melody: t.melody, chords: t.chords, modal: !!t.modal, name: pr.theme } : null };
+}
+async function applyPreset(pr0) {
+  const pr = resolvePreset(pr0);
+  stopMedley(); await start();
+  pucks.splice(0, pucks.length, ...pr.pucks.slice(0, 5).map((p) => ({ u: p.u, v: p.v, w: p.w ?? 1, dm: 0.5, drag: false, gx: 0, gy: 0, ...(p.label ? { label: p.label } : {}) })));
+  pucks.forEach(placeFromPlane);
+  sceneWord = pr.place && SCENES[pr.place] ? pr.place : null;
+  document.querySelectorAll('#scenes button').forEach((x) => x.classList.toggle('on', x.textContent === sceneWord));
+  sendPlace();
+  mannerOn = pr.manner || null; document.querySelectorAll('#manners button').forEach((x) => x.classList.toggle('on', x.textContent === mannerOn));
+  music.mix('mood', undefined, { manner: mannerOn });
+  intensity = pr.intensity ?? 0.45; lastI = -1; sendIntensity();
+  themeNow = pr.theme || null; music.style({ theme: themeNow });
+  $('themeMel').value = themeNow?.melody || ''; $('themeChd').value = themeNow?.chords || ''; $('themePick').value = themeNow?.name && THEMES[themeNow.name] ? themeNow.name : '';
+  dirty = true; sendMood();
+  if (themeNow) music.form({ section: '熱' });
+  toast(`プリセット: ${pr.name}`, 2500);
+}
+function renderPresets() {
+  const box = $('presets'); box.textContent = '';
+  const chip = (pr, del) => {
+    const b = document.createElement('button'); b.textContent = pr.name; b.onclick = () => applyPreset(pr);
+    if (del) { const x = document.createElement('span'); x.className = 'del'; x.textContent = '×'; x.title = '削除'; x.onclick = (e) => { e.stopPropagation(); del(); }; b.append(x); }
+    box.append(b);
+  };
+  const last = lsGet(LS_LAST, null);
+  if (last?.pucks) chip({ ...last, name: '前回の続き' });
+  for (const pr of BUILTIN_PRESETS) chip(pr);
+  const mine = lsGet(LS_PRESETS, []);
+  mine.forEach((pr, i) => chip(pr, () => { const m = lsGet(LS_PRESETS, []); m.splice(i, 1); lsSet(LS_PRESETS, m); renderPresets(); toast(`削除: ${pr.name}`); }));
+}
+$('presetSave').onclick = () => {
+  const name = $('presetName').value.trim() || `わたしの ${new Date().toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+  const mine = lsGet(LS_PRESETS, []).filter((p) => p.name !== name); // 同じ名前は上書き
+  mine.push(snapshot(name));
+  if (!lsSet(LS_PRESETS, mine.slice(-30))) return toast('このブラウザには保存できませんでした');
+  $('presetName').value = ''; renderPresets(); toast(`保存しました: ${name}（このブラウザだけ）`, 3000);
 };
-$('themeSet').onclick = () => { const melody = $('themeMel').value.trim(), chords = $('themeChd').value.trim(); if (!music || !melody) return toast('旋律を入れてください'); music.style({ theme: { melody, chords } }); toast('テーマを使います（次の曲から。サビで聞こえます）', 3500); };
-$('themeOff').onclick = () => { music?.style({ theme: null }); toast('テーマを外しました'); };
+renderPresets();
+window.__applyPreset = applyPreset; // 試験用
+// 前回の状態を、ときどきと閉じるときに保存する（「前回の続き」）
+const saveLast = () => { if (music) lsSet(LS_LAST, snapshot('前回の続き')); };
+setInterval(saveLast, 10000); addEventListener('pagehide', saveLast);
 $('detailBtn').onclick = () => $('panel').classList.toggle('open');
 addEventListener('keydown', (e) => { if (e.key === 'Escape') $('panel').classList.remove('open'); });
 $('release').onclick = () => { music?.unset(sliders.map((s) => s.path)); toast('手動を解除'); };
@@ -329,7 +419,7 @@ function drawPuck(p, now, hueT) {
 let last = performance.now();
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (glide) { const k = Math.min(1, (now - glide.t0) / glide.dur), e = k * k * (3 - 2 * k); glide.p.u = glide.from.u + (glide.to.u - glide.from.u) * e; glide.p.v = glide.from.v + (glide.to.v - glide.from.v) * e; placeFromPlane(glide.p); dirty = true; if (k >= 1) glide = null; }
+  if (glide) { const k = Math.min(1, (now - glide.t0) / glide.dur), e = k * k * (3 - 2 * k); glide.p.u = glide.from.u + (glide.to.u - glide.from.u) * e; glide.p.v = glide.from.v + (glide.to.v - glide.from.v) * e; placeFromPlane(glide.p); dirty = true; if (k >= 1) { const done = glide.done; glide = null; done?.(); } }
   if (dirty && now - lastSendT > 600) sendMood();
   tutTick(dt);
   const hueT = (now / 80) % 360;

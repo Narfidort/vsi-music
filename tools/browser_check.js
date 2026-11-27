@@ -41,7 +41,7 @@ ok(said && !String(said).startsWith('ERR'), `say（LLM 経由）: ${said}`);
 await cdp('Page.navigate', { url: 'http://localhost:8787/web/ui/' }); await sleep(2000);
 const mouse = (type, x, y, clickCount = 1) => cdp('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount });
 const [cw, ch] = await ev(`[innerWidth, innerHeight]`), mid = [cw / 2, ch / 2];
-await mouse('mousePressed', 40, ch - 60); await mouse('mouseReleased', 40, ch - 60); await sleep(4000); // 開始
+await mouse('mousePressed', cw * 0.2, ch * 0.6); await mouse('mouseReleased', cw * 0.2, ch * 0.6); await sleep(4000); // 開始（平面の空いた所）
 await mouse('mousePressed', mid[0], mid[1]);
 for (let i = 1; i <= 20; i++) { await mouse('mouseMoved', mid[0] - i * 12, mid[1] + i * 4); await sleep(30); }
 await mouse('mouseReleased', mid[0] - 240, mid[1] + 80);
